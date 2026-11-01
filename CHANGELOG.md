@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2+u22 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u21 with a brighter home clock.
+
+### Added
+
+- `[color] clock`: the home's clock and its date in this colour, both with
+  the `[effects] glow` halo. Unset keeps the clock in `foreground` and the
+  date in `muted`, without glow.
+
 ## 0.4.2+u21 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u20 with a rain closer to the film's.
