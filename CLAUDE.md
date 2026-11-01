@@ -160,9 +160,9 @@ window appears in front.
   (`App::raised`): sway hides the top layer under a fullscreen window. It
   moves only with no button or finger down: sway 1.10 segfaults when a surface
   changes layer under its own pointer grab.
-- The top bar is a taskbar: one icon per open window, tap to focus, the skull
+- The top bar is a taskbar: one icon per open window, tap to focus, the shutter
   menu button left, close button right. The launcher is a window that is
-  always there: the skull brings it to the front and never closes it, and a
+  always there: the shutter brings it to the front and never closes it, and a
   dock slot tapped over the menu takes the menu down. The mode icon toggles
   the mode; volume, network and the clock open Audio, Network and Quick.
   Bar and menu act on button release, not press: in Mouse mode a click is a

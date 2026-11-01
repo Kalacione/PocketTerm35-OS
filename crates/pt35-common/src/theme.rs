@@ -149,7 +149,8 @@ pub struct Bar {
     /// The clock's size, when `[font] family_display` draws it. Unset is
     /// `[font] size_bar`.
     pub clock_size: Option<f32>,
-    /// The mark on the menu button: `skull` or `bars`.
+    /// The mark on the menu button: `skull` (the shutter, named so for old
+    /// configs) or `bars`.
     pub menu_icon: String,
     /// App names next to the dock icons. Off by default: at 640px, names crowd
     /// each other out by the third window.

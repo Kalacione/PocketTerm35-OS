@@ -737,7 +737,7 @@ fn bluetooth_state() -> String {
 /// closed, and picking it goes to the launcher.
 pub const HOME: &str = "home";
 
-/// An icon name no theme has: the tile draws the pixel skull for it.
+/// An icon name no theme has: the tile draws the pixel shutter for it.
 pub const SKULL_ICON: &str = "pt35:skull";
 
 fn windows() -> Items {
@@ -1360,7 +1360,7 @@ fn appearance() -> Items {
     });
     let skull = theme.bar.menu_icon != "bars";
     out.push(Item {
-        label: "Skull menu button".into(),
+        label: "Shutter menu button".into(),
         payload: format!(
             "theme:bar.menu_icon={}",
             if skull { "bars" } else { "skull" }

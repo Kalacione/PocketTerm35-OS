@@ -4,25 +4,26 @@
 use crate::canvas::Canvas;
 use pt35_common::theme::Rgb;
 
-/// The menu button's skull: the terminal logo (`config/fastfetch/skull.txt`)
-/// read as half blocks, so the two are the same shape. 15x16.
+/// The menu button's mark: an eight-blade shutter. The blades' gaps run
+/// along rows, columns and diagonals, so it stays sharp at scale 1. The
+/// terminal logo (`config/fastfetch/skull.txt`) is the same shape in half
+/// blocks. 15x15.
 pub const SKULL: &[&str] = &[
-    "....#######....",
-    "..###########..",
-    ".#############.",
-    "###############",
-    "###############",
-    "###...###...###",
-    "##....###....##",
-    "##....###....##",
-    "##....###....##",
-    "###..##.##..###",
-    "######...######",
-    ".#####...#####.",
-    "..###########..",
-    "...#.#.#.#.#...",
-    "...#.#.#.#.#...",
-    "...#########...",
+    "......####.....",
+    "...##.####.#...",
+    "..###.###.###..",
+    ".####.##.#####.",
+    "..###.#.######.",
+    "##.##..........",
+    "###.#.....#####",
+    "####.......####",
+    "#####.....#.###",
+    "..........##.##",
+    ".######.#.###..",
+    ".#####.##.####.",
+    "..###.###.###..",
+    "...#.####.##...",
+    ".....####......",
 ];
 
 /// The launcher's mark for a pinned app, 5x8.
@@ -113,17 +114,17 @@ mod tests {
     }
 
     #[test]
-    fn the_skull_is_a_rectangle_of_known_size() {
+    fn the_mark_is_a_rectangle_of_known_size() {
         assert!(SKULL.iter().all(|row| row.len() == 15));
-        assert_eq!(size(SKULL, 1), (15, 16));
+        assert_eq!(size(SKULL, 1), (15, 15));
     }
 
     #[test]
     fn ink_lands_only_where_the_bitmap_says() {
-        let mut canvas = Canvas::new(15, 16);
+        let mut canvas = Canvas::new(15, 15);
         let ink = Rgb(0xff, 0xff, 0xff);
         draw(&mut canvas, SKULL, 0, 0, 1, ink);
-        assert_eq!(canvas.pixel(4, 0), ink.to_argb8888(), "top of the dome");
-        assert_ne!(canvas.pixel(4, 6), ink.to_argb8888(), "an eye is a hole");
+        assert_eq!(canvas.pixel(7, 0), ink.to_argb8888(), "top blade");
+        assert_ne!(canvas.pixel(7, 7), ink.to_argb8888(), "the centre is open");
     }
 }
