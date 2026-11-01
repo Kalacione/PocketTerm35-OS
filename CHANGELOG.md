@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2+u1 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2 plus one change.
+
+### Added
+
+- `~/.config/pt35/wallpaper.svg`, when there is one, is drawn under the
+  launcher. resvg is built without text, so the SVG has to be shapes.
+
 ## 0.4.2 (2026-10-21)
 
 After upgrading, reflash the keyboard with `sudo pt35-kbd flash`.
