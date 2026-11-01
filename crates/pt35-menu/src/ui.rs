@@ -234,6 +234,8 @@ pub struct Menu {
     strip_scroll: Option<i32>,
     /// The last thing that moved the selection was the pointer, not a key.
     pointer_driven: bool,
+    /// B picked up the home tile under the cursor: the D-pad moves it.
+    moving: bool,
     /// The right-click menu, while it is up.
     popup: Option<Popup>,
     /// The header's breadcrumbs: `(left, right, depth)`.
@@ -428,6 +430,7 @@ impl Menu {
             row_hits: Vec::new(),
             strip_scroll: None,
             pointer_driven: false,
+            moving: false,
             popup: None,
             crumb_hits: Vec::new(),
             scrollbar: None,
@@ -637,6 +640,45 @@ impl Menu {
             && self.model.screen().list.columns() > 1
     }
 
+    /// A key while a home tile is picked up. The D-pad swaps it with the tile
+    /// it points at, and writes the pins at once: nothing is lost if the menu
+    /// closes mid-move. A or B puts it down. Anything else puts it down and
+    /// then does what it does (`None`).
+    fn move_tile(&mut self, key: &Key) -> Option<bool> {
+        use pt35_ui::keys::{button, navigate, Button, Navigation};
+        if !self.home() {
+            self.moving = false;
+            return None;
+        }
+        if matches!(button(key, Mode::Nav), Some(Button::A | Button::B)) {
+            self.moving = false;
+            return Some(true);
+        }
+        let nav = navigate(key, Mode::Nav);
+        if !matches!(
+            nav,
+            Navigation::Up | Navigation::Down | Navigation::Left | Navigation::Right
+        ) {
+            self.moving = false;
+            return None;
+        }
+        let list = &self.model.screen().list;
+        let at = list.selected()?;
+        let Some(to) = providers::grid_step(at, list.len(), list.columns(), nav) else {
+            return Some(true);
+        };
+        let mut items = self.model.dynamic_items()?.to_vec();
+        if let Err(e) = providers::swap_pins(&items[at].payload, &items[to].payload) {
+            self.error = Some(format!("pinning: {e}"));
+            return Some(true);
+        }
+        let payload = items[at].payload.clone();
+        items.swap(at, to);
+        self.model.replace_dynamic(items);
+        self.model.focus_payload(&payload);
+        Some(true)
+    }
+
     /// True when Right moves along the launcher grid rather than out of it.
     fn launcher_moves_right(&self) -> bool {
         let list = &self.model.screen().list;
@@ -710,7 +752,7 @@ impl Menu {
             "^v" => Key::new(pt35_ui::keys::sym::DOWN),
             // The button's own keysym, not its letter: with the pt35
             // firmware a letter is only a letter.
-            "A" => Key::new(pt35_ui::keys::sym::BUTTON_A),
+            "A" | "A B" => Key::new(pt35_ui::keys::sym::BUTTON_A),
             "B" => Key::new(pt35_ui::keys::sym::BUTTON_B),
             "X" => Key::new(pt35_ui::keys::sym::BUTTON_X),
             "Y" => Key::new(pt35_ui::keys::sym::BUTTON_Y),
@@ -2222,6 +2264,24 @@ impl Menu {
                 );
             }
 
+            // A tile in hand: a thick frame and a MOVE tag, never colour alone.
+            if focused && self.moving {
+                for inset in 1..4 {
+                    canvas.frame(
+                        x - inset,
+                        y - inset,
+                        (tile_w + 2 * inset) as u32,
+                        (tile_h + 2 * inset) as u32,
+                        theme.color.foreground,
+                    );
+                }
+                let tag = "MOVE";
+                let tag_size = theme.font.size_hint * 0.85;
+                let tw = self.mono_bold.measure(tag, tag_size) as i32;
+                canvas.rect(x + 4, y + 4, (tw + 8) as u32, 16, ink);
+                self.mono_bold
+                    .draw(canvas, tag, x + 8, y + 16, tag_size, face);
+            }
             // Running and pinned, in the top corners: the same warnings the
             // list gives, out of the icon's way.
             if self.is_running(&row.payload) {
@@ -3017,6 +3077,28 @@ impl Menu {
                     action: "Widget",
                 });
             }
+            if self.model.selected_payload().is_some() {
+                hints.insert(
+                    1.min(hints.len()),
+                    Hint {
+                        button: "B",
+                        action: "Move",
+                    },
+                );
+            }
+        }
+        // A tile in hand: the legend says so in words, not only the frame.
+        if self.moving {
+            hints = vec![
+                Hint {
+                    button: "<>",
+                    action: "Move",
+                },
+                Hint {
+                    button: "A B",
+                    action: "Drop",
+                },
+            ];
         }
         if !mouse && self.pin_target().is_some() {
             // Not also Home: Y does one thing per screen.
@@ -3263,6 +3345,11 @@ impl App for Menu {
             }
             return true;
         }
+        if self.moving {
+            if let Some(step) = self.move_tile(&key) {
+                return step;
+            }
+        }
         // Typing on the launcher is a search: the first letter opens it.
         if self.on_launcher()
             && self.side.is_none()
@@ -3288,6 +3375,11 @@ impl App for Menu {
             match pt35_ui::keys::button(&key, mode) {
                 Some(pt35_ui::keys::Button::R) => return self.flip_widget(true),
                 Some(pt35_ui::keys::Button::L) => return self.flip_widget(false),
+                // B has nothing to go back to on the home: it picks the tile up.
+                Some(pt35_ui::keys::Button::B) if self.side.is_none() => {
+                    self.moving = self.model.selected_payload().is_some();
+                    return true;
+                }
                 _ => {}
             }
         }
@@ -3403,6 +3495,10 @@ impl App for Menu {
                 _ => false,
             };
         }
+        // The picked-up tile follows the D-pad, not the pointer.
+        if self.moving {
+            return false;
+        }
         self.pointer_driven = true;
         let hit = self
             .row_hits
@@ -3438,6 +3534,7 @@ impl App for Menu {
     fn back_click(&mut self, x: f64, y: f64) -> bool {
         let (x, y) = (x as i32, y as i32);
         self.popup = None;
+        self.moving = false;
         let Some(index) = self
             .row_hits
             .iter()
@@ -3484,6 +3581,7 @@ impl App for Menu {
     }
 
     fn touch(&mut self, x: f64, y: f64) -> bool {
+        self.moving = false;
         // The release that ends a scrollbar drag. Whatever is under it now
         // was not what the drag was for.
         if std::mem::take(&mut self.scrolling) {

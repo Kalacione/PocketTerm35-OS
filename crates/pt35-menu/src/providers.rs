@@ -348,6 +348,40 @@ pub fn toggle_pin(payload: &str) -> std::io::Result<bool> {
     Ok(pinned)
 }
 
+/// Swap two pins in the file, so the home shows them in each other's place.
+pub fn swap_pins(a: &str, b: &str) -> std::io::Result<()> {
+    let mut list = read_pins()?;
+    let (Some(i), Some(j)) = (
+        list.iter().position(|p| p == a),
+        list.iter().position(|p| p == b),
+    ) else {
+        return Ok(());
+    };
+    list.swap(i, j);
+    pt35_common::write_atomic(
+        &pt35_common::paths::pins_path(),
+        (list.join("\n") + "\n").as_bytes(),
+    )
+}
+
+/// The tile a D-pad press lands on in a grid, if there is one there.
+pub fn grid_step(
+    at: usize,
+    len: usize,
+    columns: usize,
+    nav: pt35_ui::keys::Navigation,
+) -> Option<usize> {
+    use pt35_ui::keys::Navigation;
+    let to = match nav {
+        Navigation::Up => at.checked_sub(columns)?,
+        Navigation::Down => at + columns,
+        Navigation::Left if at % columns > 0 => at - 1,
+        Navigation::Right if at % columns + 1 < columns => at + 1,
+        _ => return None,
+    };
+    (to < len).then_some(to)
+}
+
 /// Move the things you opened last to the top, in that order.
 ///
 /// `AppTable` is a `BTreeMap`, so the launcher's own order is by app id: one
@@ -1493,6 +1527,21 @@ mod tests {
         assert!(pinnable("page:power"));
         assert!(!pinnable("con:42"));
         assert!(!pinnable(""));
+    }
+
+    #[test]
+    fn a_moved_tile_stays_inside_the_grid() {
+        use pt35_ui::keys::Navigation::*;
+        // Three columns, seven tiles: the last line holds one.
+        assert_eq!(grid_step(4, 7, 3, Up), Some(1));
+        assert_eq!(grid_step(1, 7, 3, Up), None);
+        assert_eq!(grid_step(3, 7, 3, Down), Some(6));
+        assert_eq!(grid_step(4, 7, 3, Down), None);
+        assert_eq!(grid_step(3, 7, 3, Left), None);
+        assert_eq!(grid_step(5, 7, 3, Right), None);
+        assert_eq!(grid_step(5, 7, 3, Left), Some(4));
+        assert_eq!(grid_step(6, 7, 3, Right), None);
+        assert_eq!(grid_step(0, 7, 3, Activate), None);
     }
 
     #[test]
