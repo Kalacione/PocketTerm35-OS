@@ -556,6 +556,31 @@ impl Model {
         screen.source = Source::Dynamic { builtin, items };
     }
 
+    /// Rebuild the launcher at the bottom of the stack, where a pin made on
+    /// a screen above it has to show when you come back.
+    pub fn refresh_launcher(&mut self, items: Vec<crate::providers::Item>) {
+        let Some(root) = self.stack.first() else {
+            return;
+        };
+        if !matches!(
+            root.source,
+            Source::Dynamic {
+                builtin: Builtin::Launcher,
+                ..
+            }
+        ) {
+            return;
+        }
+        let mut list = self.list_for(Builtin::Launcher, Layout::List, &items);
+        list.keep_position(&root.list);
+        let root = &mut self.stack[0];
+        root.list = list;
+        root.source = Source::Dynamic {
+            builtin: Builtin::Launcher,
+            items,
+        };
+    }
+
     /// Drop one row of the current dynamic screen, by payload.
     ///
     /// Used after a window is asked to close. Waiting for the daemon to notice
@@ -626,7 +651,10 @@ impl Model {
             // four levels one press at a time is the thing people complain about.
             Outcome::Secondary => {
                 // On the launcher, Y pins the app under the cursor.
-                if self.dynamic_builtin() == Some(Builtin::Launcher) {
+                if matches!(
+                    self.dynamic_builtin(),
+                    Some(Builtin::Launcher | Builtin::Apps)
+                ) {
                     return match self.selected_payload() {
                         Some(p) if p.starts_with("app:") || p.starts_with("exec:") => {
                             Step::TogglePin(p.to_string())
@@ -706,7 +734,7 @@ impl Model {
                 }
             }
             Source::Dynamic {
-                builtin: Builtin::Launcher | Builtin::Quick,
+                builtin: Builtin::Launcher | Builtin::Apps | Builtin::Quick,
                 items,
             } => {
                 let Some(payload) = items.get(index).map(|i| i.payload.clone()) else {
@@ -882,6 +910,22 @@ entries = [
         );
         press(&mut model, sym::DOWN);
         assert_eq!(model.screen().list.selected_position(), 5, "Down is a line");
+    }
+
+    #[test]
+    fn a_pin_made_on_all_apps_shows_on_the_home() {
+        let mut model = model();
+        let item = |label: &str| crate::providers::Item::new(label, format!("app:{label}"));
+        model.set_root_dynamic(Builtin::Launcher, "Launcher", vec![item("a")]);
+        model.push_dynamic(Builtin::Apps, "All apps", vec![item("a"), item("b")]);
+        model.refresh_launcher(vec![item("a"), item("b")]);
+        assert_eq!(
+            model.dynamic_builtin(),
+            Some(Builtin::Apps),
+            "still on All apps"
+        );
+        assert_eq!(press(&mut model, sym::BUTTON_B), Step::Redraw);
+        assert_eq!(model.visible_rows().len(), 2, "the home has the new pin");
     }
 
     #[test]

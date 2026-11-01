@@ -71,6 +71,7 @@ fn dynamic(builtin: Builtin, payload: &str) -> Plan {
         Builtin::DesktopEntries => Plan::Shell(payload.to_string()),
         // The model reads these payloads itself: half of them navigate.
         Builtin::Launcher
+        | Builtin::Apps
         | Builtin::Quick
         | Builtin::System
         | Builtin::Appearance

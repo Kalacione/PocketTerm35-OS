@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u3 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u2 plus a home screen.
+
+### Added
+
+- `[menu] launcher_home`: with a grid, the launcher is a home. Pinned
+  apps, then All apps, Settings and Power tiles; no side column, Windows
+  stays on Select. A column on the left shows the clock and date, CPU,
+  RAM and temperature gauges, and the network: name, address, Wi-Fi
+  signal, rates. Gauges with nothing to read are left out. A search opens
+  All apps, a new list screen (`apps`) of every app, where Y pins.
+
 ## 0.4.2+u2 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u1 plus a launcher grid and screen effects.

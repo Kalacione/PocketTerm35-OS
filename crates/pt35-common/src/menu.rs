@@ -110,6 +110,9 @@ pub enum StateField {
 pub enum Builtin {
     /// Everything you can start, plus the screens that are not apps.
     Launcher,
+    /// Every app as a list, when the launcher is a home of pinned apps
+    /// (`[menu] launcher_home`). Y pins from here.
+    Apps,
     /// Switches and sliders: the things you change without leaving what you
     /// were doing.
     Quick,
@@ -132,6 +135,7 @@ impl Builtin {
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "launcher" => Builtin::Launcher,
+            "apps" => Builtin::Apps,
             "quick" => Builtin::Quick,
             "system" => Builtin::System,
             "windows" => Builtin::Windows,

@@ -53,6 +53,8 @@ const POPUP_ROW: i32 = 40;
 
 /// How far left of the drawn scrollbar still counts as on it.
 const SCROLLBAR_SLOP: i32 = 12;
+/// Width of the home column: the clock, the machine, the network.
+const HOME_WIDTH: i32 = 216;
 /// Height a launcher tile adds under its icon: the name and the margins.
 const LAUNCHER_LABEL: u32 = 32;
 /// How many of those ticks go by between reads of the daemon.
@@ -240,6 +242,8 @@ pub struct Menu {
     hover_sent: Option<i64>,
     /// Whether pt35d was last told the launcher is in front.
     launcher_sent: Option<(bool, Option<String>)>,
+    /// The machine and the network, for the home column.
+    readings: crate::home::Readings,
     /// A Bluetooth scan is running until then; the list is re-read meanwhile.
     scan_until: Option<std::time::Instant>,
     /// Switcher previews read so far, by window id, with the file's mtime so
@@ -408,6 +412,7 @@ impl Menu {
             motion: Motion::new(theme_animations),
             hover_sent: None,
             launcher_sent: None,
+            readings: crate::home::Readings::default(),
             scan_until: None,
             previews: std::collections::HashMap::new(),
             bad_previews: std::collections::HashMap::new(),
@@ -467,7 +472,9 @@ impl Menu {
     /// open.
     fn pin_target(&self) -> Option<String> {
         let filtering = self.model.screen().list.mode() == Mode::Filter;
-        if !self.on_launcher() || self.model.depth() != 1 || filtering || self.side.is_some() {
+        let all_apps = self.model.dynamic_builtin() == Some(pt35_common::menu::Builtin::Apps);
+        let top = self.on_launcher() && self.model.depth() == 1;
+        if !(top || all_apps) || filtering || self.side.is_some() {
             return None;
         }
         self.model
@@ -543,6 +550,13 @@ impl Menu {
             popup.rects.push((x, top, x + width, top + POPUP_ROW));
         }
         self.popup = Some(popup);
+    }
+
+    /// The launcher is a home of pinned apps with the widget column.
+    fn home(&self) -> bool {
+        self.on_launcher()
+            && self.theme.menu.launcher_home
+            && self.model.screen().list.columns() > 1
     }
 
     /// True when Right moves along the launcher grid rather than out of it.
@@ -810,9 +824,16 @@ impl Menu {
             Step::TogglePin(payload) => {
                 match providers::toggle_pin(&payload) {
                     Ok(pinned) => {
-                        self.model.replace_dynamic(providers::items(
-                            pt35_common::menu::Builtin::Launcher,
-                        ));
+                        let here = self
+                            .model
+                            .dynamic_builtin()
+                            .unwrap_or(pt35_common::menu::Builtin::Launcher);
+                        self.model.replace_dynamic(providers::items(here));
+                        if here != pt35_common::menu::Builtin::Launcher {
+                            self.model.refresh_launcher(providers::items(
+                                pt35_common::menu::Builtin::Launcher,
+                            ));
+                        }
                         // It just moved: keep the cursor on it.
                         self.model.focus_payload(&payload);
                         let _ = pinned;
@@ -1398,6 +1419,155 @@ impl Menu {
         }
     }
 
+    /// The home column: the time and the machine on one panel, the network
+    /// on the other, as on a deck's status screen.
+    fn draw_home(&mut self, canvas: &mut Canvas, x: i32, top: i32, bottom: i32) {
+        let theme = self.theme.clone();
+        let gap = theme.menu.gap as i32;
+        let w = HOME_WIDTH;
+        let small = theme.font.size_hint;
+        let system_h = (bottom - top - gap) * 11 / 20;
+        self.draw_panel(canvas, x, top, w, system_h, "SYSTEM");
+
+        let now = chrono::Local::now();
+        let time = now.format(&theme.bar.clock_format).to_string();
+        let big = 58.0;
+        let tw = self.mono.measure(&time, big) as i32;
+        let baseline = top + 26 + (big * 0.72) as i32;
+        self.mono.draw(
+            canvas,
+            &time,
+            x + (w - tw) / 2,
+            baseline,
+            big,
+            theme.color.foreground,
+        );
+        let date = now.format("%a %d %b %Y").to_string().to_uppercase();
+        let dw = self.mono.measure(&date, small) as i32;
+        self.mono.draw(
+            canvas,
+            &date,
+            x + (w - dw) / 2,
+            baseline + 24,
+            small,
+            theme.color.muted,
+        );
+
+        let r = &self.readings;
+        let gauges = [
+            (
+                "CPU",
+                r.cpu.map(|c| c as f32 / 100.0),
+                r.cpu.map(|c| format!("{c}%")),
+            ),
+            (
+                "RAM",
+                r.memory.map(|m| m as f32 / 100.0),
+                r.memory.map(|m| format!("{m}%")),
+            ),
+            (
+                "TEMP",
+                r.temperature.map(|t| ((t - 30.0) / 55.0).clamp(0.0, 1.0)),
+                r.temperature.map(|t| format!("{t:.0}°")),
+            ),
+        ];
+        let mut y = baseline + 44;
+        for (label, level, value) in gauges {
+            // A gauge with nothing to read is left out, never shown empty.
+            let (Some(level), Some(value)) = (level, value) else {
+                continue;
+            };
+            self.mono
+                .draw(canvas, label, x + 12, y + 10, small, theme.color.muted);
+            self.draw_segments(canvas, x + 64, y, 96, level);
+            let vw = self.mono.measure(&value, small) as i32;
+            self.mono.draw(
+                canvas,
+                &value,
+                x + w - 12 - vw,
+                y + 10,
+                small,
+                theme.color.foreground,
+            );
+            y += 22;
+        }
+
+        let net_top = top + system_h + gap;
+        self.draw_panel(canvas, x, net_top, w, bottom - net_top, "NETWORK");
+        let status = self.status.clone().unwrap_or_default();
+        let mut y = net_top + 40;
+        let name = match (&status.network, &status.ethernet, &self.readings.ssid) {
+            (None, _, _) => "Offline".to_string(),
+            (Some(iface), Some(wired), _) if iface == wired => "Ethernet".to_string(),
+            (_, _, Some(ssid)) => ssid.clone(),
+            (Some(iface), _, None) => iface.clone(),
+        };
+        let name = self.font.elide(&name, small, (w - 24) as u32);
+        self.font
+            .draw(canvas, &name, x + 12, y, small, theme.color.foreground);
+        if let Some(address) = self.readings.address.clone() {
+            y += 22;
+            self.mono
+                .draw(canvas, &address, x + 12, y, small, theme.color.muted);
+        }
+        if let Some(signal) = status.network_signal {
+            y += 12;
+            self.draw_segments(canvas, x + 12, y, w - 24, signal as f32 / 100.0);
+            y += 10;
+        }
+        if let Some((down, up)) = self.readings.rates {
+            y += 24;
+            let text = format!("↓ {}  ↑ {}", crate::home::rate(down), crate::home::rate(up));
+            let text = self.mono.elide(&text, small, (w - 24) as u32);
+            self.mono
+                .draw(canvas, &text, x + 12, y, small, theme.color.foreground);
+        }
+    }
+
+    /// A panel of the home column: a flat surface with its name on a tab.
+    fn draw_panel(&mut self, canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, title: &str) {
+        let theme = self.theme.clone();
+        canvas.rect(x, y, w as u32, h.max(0) as u32, theme.color.border);
+        canvas.rect(
+            x + 1,
+            y + 1,
+            (w - 2) as u32,
+            (h - 2).max(0) as u32,
+            theme.color.background_alt,
+        );
+        let size = theme.font.size_hint * 0.8;
+        let tw = self
+            .mono_bold
+            .measure_tracked(title, size, theme.font.tracking) as i32;
+        canvas.rect(x, y, (tw + 12) as u32, 18, theme.color.foreground);
+        self.mono_bold.draw_tracked(
+            canvas,
+            title,
+            x + 6,
+            y + 14,
+            size,
+            theme.color.background,
+            theme.font.tracking,
+        );
+    }
+
+    /// A segmented bar: eight blocks, lit up to `level` (0 to 1).
+    fn draw_segments(&mut self, canvas: &mut Canvas, x: i32, y: i32, w: i32, level: f32) {
+        let theme = &self.theme;
+        let count = 8;
+        let gap = 3;
+        let seg = (w - gap * (count - 1)) / count;
+        let lit = (level.clamp(0.0, 1.0) * count as f32).round() as i32;
+        for i in 0..count {
+            let color = if i < lit {
+                theme.color.foreground
+            } else {
+                theme.color.border
+            };
+            canvas.rect(x + i * (seg + gap), y, seg as u32, 10, color);
+        }
+    }
+
     /// The launcher's apps as a grid: a big icon over its name. The picked
     /// tile is filled in the accent and its icon drawn in `accent_fg`, so the
     /// selection reads from shape and contrast, not hue.
@@ -1405,24 +1575,24 @@ impl Menu {
         &mut self,
         canvas: &mut Canvas,
         rows: &[crate::model::Row],
+        left: i32,
         top: i32,
         bottom: i32,
         split: i32,
     ) {
         let theme = self.theme.clone();
-        let pad = theme.menu.padding_x as i32;
         let gap = theme.menu.gap as i32;
         let bar = theme.menu.scrollbar_width as i32 + 4;
         let list = &self.model.screen().list;
         let (columns, lines) = (list.columns() as i32, list.rows() as i32);
         let cursor = list.cursor_index();
-        let tile_w = (split - pad - bar - gap * columns) / columns;
+        let tile_w = (split - left - bar - gap * columns) / columns;
         let tile_h = (bottom - top - gap * (lines - 1)) / lines;
         let icon_size = theme.icons.size_launcher;
         let size = theme.font.size_hint;
 
         for (index, row) in rows.iter().enumerate() {
-            let x = pad + (index as i32 % columns) * (tile_w + gap);
+            let x = left + (index as i32 % columns) * (tile_w + gap);
             let y = top + (index as i32 / columns) * (tile_h + gap);
             if y + tile_h > bottom {
                 break;
@@ -1495,7 +1665,8 @@ impl Menu {
                     if focused { ink } else { theme.color.accent },
                 );
             }
-            if row.active {
+            // On the home every app is pinned: a mark on each says nothing.
+            if row.active && !self.home() {
                 pt35_ui::pixel::draw_centred(
                     canvas,
                     pt35_ui::pixel::PIN,
@@ -1625,11 +1796,29 @@ impl Menu {
 
         let rows = self.model.visible_rows();
         self.row_hits.clear();
+        if self.home() {
+            let pad = theme.menu.padding_x as i32;
+            let column = pad + HOME_WIDTH;
+            self.draw_home(canvas, pad, top, bottom);
+            let right = canvas.width as i32;
+            self.draw_app_tiles(
+                canvas,
+                &rows,
+                column + theme.menu.gap as i32,
+                top,
+                bottom,
+                right,
+            );
+            self.draw_scrollbar(canvas, right, top, bottom);
+            self.side_hits.clear();
+            return;
+        }
         if rows.is_empty() {
             self.draw_nothing_here(canvas, top, split);
         }
         if self.model.screen().list.columns() > 1 {
-            self.draw_app_tiles(canvas, &rows, top, bottom, split);
+            let pad = theme.menu.padding_x as i32;
+            self.draw_app_tiles(canvas, &rows, pad, top, bottom, split);
         } else {
             self.draw_app_rows(canvas, &rows, top, bottom, split);
         }
@@ -2181,6 +2370,8 @@ impl Menu {
         // Y on a launcher row pins it: the one thing Y is free for at the top.
         // In Mouse mode Y is the wheel: a right click pins, from its menu.
         if !mouse && self.pin_target().is_some() {
+            // Not also Home: Y does one thing per screen.
+            hints.retain(|hint| hint.button != "Y");
             let pinned = self
                 .model
                 .visible_rows()
@@ -2319,6 +2510,14 @@ impl App for Menu {
             }
         }
         self.since_poll += 1;
+        // The home column fills in on the first tick, not before the first
+        // frame, then moves with the poll.
+        let home_due = !self.readings.sampled() || self.since_poll >= POLL_TICKS;
+        if self.home() && home_due {
+            let iface = self.status.as_ref().and_then(|s| s.network.clone());
+            self.readings.sample(iface.as_deref());
+            drawn = true;
+        }
         if self.since_poll < POLL_TICKS {
             return drawn;
         }
@@ -2388,6 +2587,9 @@ impl App for Menu {
             && key.text.is_some_and(|c| c.is_alphanumeric())
             && pt35_ui::keys::button(&key, Mode::Filter).is_none()
         {
+            if self.home() {
+                self.open_here(pt35_common::menu::Builtin::Apps);
+            }
             self.model.handle(&Key::new(pt35_ui::keys::sym::BUTTON_X));
             let step = self.model.handle(&key);
             return self.apply(step);
@@ -2437,6 +2639,20 @@ impl App for Menu {
                 };
             }
             _ => {}
+        }
+        if self.home() {
+            let mode = self.model.screen().list.mode();
+            match navigate(&key, mode) {
+                // A search is of every app, not of the pins.
+                Navigation::StartFilter => {
+                    self.open_here(pt35_common::menu::Builtin::Apps);
+                    let step = self.model.handle(&key);
+                    return self.apply(step);
+                }
+                // No side column: the grid's edge is the screen's.
+                Navigation::Right if !self.launcher_moves_right() => return true,
+                _ => {}
+            }
         }
         if self.on_launcher() {
             let mode = self.model.screen().list.mode();
