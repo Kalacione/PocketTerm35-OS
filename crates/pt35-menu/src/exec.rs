@@ -72,6 +72,7 @@ fn dynamic(builtin: Builtin, payload: &str) -> Plan {
         // The model reads these payloads itself: half of them navigate.
         Builtin::Launcher
         | Builtin::Apps
+        | Builtin::Widgets
         | Builtin::Quick
         | Builtin::System
         | Builtin::Appearance

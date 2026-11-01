@@ -95,7 +95,8 @@ takes off is `--no-repeat`: Start, Select, L, R and Buttons mode's A, B, X and
 Y. So holding A does not repeat Enter. The menu then does the
 same job itself: R switches mode, L closes the card under the cursor on the
 switcher and nothing elsewhere, because the window behind the menu is out of
-sight. `pt35d` binds Start and Select outside the modes, so no mode can lose
+sight. On the home (`launcher_home`) L and R flip the widget pile instead;
+the bar's mode icon switches mode there. `pt35d` binds Start and Select outside the modes, so no mode can lose
 them.
 
 The menu is modal, for a stock unit where the letters are the buttons: nav mode
@@ -118,6 +119,17 @@ On the launcher, typing starts a search (`type_to_search`, off for stock
 firmware) and X does too. Matches rank by name prefix, word start, anywhere,
 then letters in order, over the label and the app's id or command. Y pins the
 row: pins sit above the recents, in `~/.local/state/pt35/pinned`.
+
+The home (`launcher_home`) is a widget column and a grid of pins. The column
+is two equal panels: the machine on top, then a pile of pinned widgets shown
+one at a time (Network, Media), with its place written as `1/2`. L and R
+flip the pile, and so does a tap on its header. X opens All widgets, where Y
+pins and A shows one. Pins are in `~/.local/state/pt35/widgets`, the one in
+front in `widget`. A player that starts brings Media to the front. Network
+follows the route in use (LAN, WIFI and the SSID, or OFFLINE) and graphs its
+last three minutes on a log scale from 1 kb/s to 1 Gb/s, in bits. `pt35d`
+keeps that history (`traffic.rs`, `pt35ctl traffic`): the menu is a new
+process per open.
 
 The launcher cannot be closed from inside it. The picker's first tile is the
 Launcher: A opens it, Y and X leave it alone. At the launcher's top screen B does

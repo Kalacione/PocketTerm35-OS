@@ -61,6 +61,7 @@ pub fn screen(builtin: Builtin) -> Screen {
     let (title, layout, scanning, rows): (_, _, _, fn() -> Items) = match builtin {
         Builtin::Launcher => ("Launcher", Layout::List, None, launcher as fn() -> Items),
         Builtin::Apps => ("All apps", Layout::List, None, apps),
+        Builtin::Widgets => ("All widgets", Layout::List, None, widgets),
         Builtin::Quick => ("Quick settings", Layout::List, Some("Reading..."), quick),
         Builtin::System => ("System", Layout::List, None, system),
         // One column: the D-pad only goes up and down, and a whole title fits.
@@ -162,9 +163,29 @@ fn apps() -> Items {
     out
 }
 
-/// Whether a launcher row can be pinned: an app, or a screen All apps lists.
+/// Every widget the home's pile can hold, pinned or not. A shows one, Y pins.
+fn widgets() -> Items {
+    let pinned = crate::widgets::pinned();
+    crate::widgets::Widget::ALL
+        .into_iter()
+        .map(|w| Item {
+            label: w.label().into(),
+            payload: format!("widget:{}", w.id()),
+            icon: match w {
+                crate::widgets::Widget::Network => "network-wireless",
+                crate::widgets::Widget::Media => "audio-x-generic",
+            }
+            .into(),
+            active: pinned.contains(&w),
+            ..Item::default()
+        })
+        .collect()
+}
+
+/// Whether a launcher row can be pinned: an app, a screen All apps lists, or
+/// a widget.
 pub fn pinnable(payload: &str) -> bool {
-    ["app:", "exec:", "screen:", "page:"]
+    ["app:", "exec:", "screen:", "page:", "widget:"]
         .iter()
         .any(|kind| payload.starts_with(kind))
 }
@@ -278,6 +299,12 @@ fn parse_list(text: &str) -> Vec<String> {
 /// Pin a launcher row, or unpin it if it already is. Returns whether it is
 /// pinned now.
 pub fn toggle_pin(payload: &str) -> std::io::Result<bool> {
+    if let Some(widget) = payload
+        .strip_prefix("widget:")
+        .and_then(crate::widgets::Widget::from_id)
+    {
+        return crate::widgets::toggle_pin(widget);
+    }
     // A file that cannot be read is not an empty one: writing the new pin alone
     // would drop every other.
     let mut list = read_pins()?;

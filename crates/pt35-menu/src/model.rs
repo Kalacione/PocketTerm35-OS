@@ -99,6 +99,8 @@ pub enum Step {
     Quit,
     /// Pin this launcher row to the top, or unpin it.
     TogglePin(String),
+    /// Go home with this widget in front of the pile.
+    ShowWidget(String),
 }
 
 pub struct Model {
@@ -665,7 +667,7 @@ impl Model {
                 // On the launcher, Y pins the app under the cursor.
                 if matches!(
                     self.dynamic_builtin(),
-                    Some(Builtin::Launcher | Builtin::Apps)
+                    Some(Builtin::Launcher | Builtin::Apps | Builtin::Widgets)
                 ) {
                     return match self.selected_payload() {
                         Some(p) if crate::providers::pinnable(p) => Step::TogglePin(p.to_string()),
@@ -744,7 +746,7 @@ impl Model {
                 }
             }
             Source::Dynamic {
-                builtin: Builtin::Launcher | Builtin::Apps | Builtin::Quick,
+                builtin: Builtin::Launcher | Builtin::Apps | Builtin::Quick | Builtin::Widgets,
                 items,
             } => {
                 let Some(payload) = items.get(index).map(|i| i.payload.clone()) else {
@@ -766,6 +768,7 @@ impl Model {
                     // A switch stays: watching it flip is the point.
                     "sh" => Step::RunStay(Command::Helper(rest)),
                     "ctl" => Step::RunStay(Command::Action(rest)),
+                    "widget" => Step::ShowWidget(rest),
                     // The D-pad is the whole interaction for a slider.
                     _ => Step::Nothing,
                 }
@@ -936,6 +939,27 @@ entries = [
         );
         assert_eq!(press(&mut model, sym::BUTTON_B), Step::Redraw);
         assert_eq!(model.visible_rows().len(), 2, "the home has the new pin");
+    }
+
+    #[test]
+    fn all_widgets_pins_with_y_and_shows_with_a() {
+        let mut model = model();
+        let item = |id: &str| crate::providers::Item::new(id, format!("widget:{id}"));
+        model.set_root_dynamic(Builtin::Launcher, "Launcher", vec![]);
+        model.push_dynamic(
+            Builtin::Widgets,
+            "All widgets",
+            vec![item("network"), item("media")],
+        );
+        press(&mut model, sym::DOWN);
+        assert_eq!(
+            press(&mut model, sym::BUTTON_Y),
+            Step::TogglePin("widget:media".into())
+        );
+        assert_eq!(
+            press(&mut model, sym::BUTTON_A),
+            Step::ShowWidget("media".into())
+        );
     }
 
     #[test]

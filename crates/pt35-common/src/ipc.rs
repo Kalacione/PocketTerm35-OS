@@ -82,6 +82,9 @@ pub enum Request {
     Status,
     /// Subscribe to status updates; the daemon then streams `Event`s.
     Subscribe,
+    /// The recent throughput of the interface carrying traffic, for the
+    /// home's graph. Kept by the daemon: the menu is a new process per open.
+    Traffic,
 }
 
 impl Request {
@@ -146,6 +149,7 @@ impl Request {
             ["key", key] => Request::Key {
                 key: key.to_string(),
             },
+            ["traffic"] => Request::Traffic,
             ["wheel", "up"] => Request::Wheel { down: false },
             ["wheel", "down"] => Request::Wheel { down: true },
             ["window", "closeall"] => Request::Window {
@@ -337,6 +341,18 @@ pub enum Response {
     Ok,
     Error { message: String },
     Status(Status),
+    Traffic(Traffic),
+}
+
+/// Samples `Traffic` keeps: three minutes at the daemon's 2 second poll.
+pub const TRAFFIC_SAMPLES: usize = 90;
+
+/// One sample per daemon poll, oldest first, in bits a second, down and up.
+/// Starts again when the route moves to another interface.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Traffic {
+    pub iface: Option<String>,
+    pub samples: Vec<[f32; 2]>,
 }
 
 /// One snapshot of everything the bar shows. Absent fields mean "this device
@@ -492,6 +508,7 @@ mod tests {
             action: PowerAction::Poweroff,
         });
         roundtrip(Request::Status);
+        roundtrip(Request::Traffic);
         roundtrip(Request::Window {
             action: WindowAction::Close,
         });

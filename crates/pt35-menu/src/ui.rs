@@ -16,6 +16,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use crate::model::{Model, Step};
+use crate::widgets::Widget;
 use crate::{exec, providers};
 
 /// One entry in the bottom legend. The pill is coloured like the physical
@@ -57,6 +58,15 @@ const SCROLLBAR_SLOP: i32 = 12;
 const WIDGET_WIDTH: i32 = 216;
 /// Height a launcher tile adds under its icon: the name and the margins.
 const LAUNCHER_LABEL: u32 = 32;
+
+/// What a tap on the widget pile does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WidgetHit {
+    /// The header: the next widget.
+    Next,
+    /// A player command for `playerctl`.
+    Player(&'static str),
+}
 
 /// A percent from the theme as an alpha.
 fn opacity(percent: u8) -> u8 {
@@ -233,8 +243,14 @@ pub struct Menu {
     /// RP2040 that owns the keyboard drops off the USB bus, and Windows,
     /// Settings and Power were unreachable that way.
     side_hits: Vec<(i32, i32, i32, i32, usize)>,
-    /// The home's media panel, a play/pause button as a whole.
-    media_hit: Option<(i32, i32, i32, i32)>,
+    /// The widget pile's touch targets: its header, the player's buttons.
+    widget_hits: Vec<(i32, i32, i32, i32, WidgetHit)>,
+    /// The pinned widgets and the one the pile shows.
+    widgets: Vec<crate::widgets::Widget>,
+    widget: usize,
+    /// Whether the player was playing at the last read: one that starts
+    /// brings Media to the front.
+    was_playing: bool,
     hint_hits: Vec<(i32, i32, i32, &'static str)>,
     error: Option<String>,
     /// A slow provider still running on a worker thread, and the screen it
@@ -392,6 +408,7 @@ impl Menu {
         pt35_ui::keys::set_letters_are_buttons(!pt35_firmware);
         let icons = pt35_ui::icon::Icons::new(&theme.icons.theme);
         let theme_animations = theme.menu.animations;
+        let (widgets, widget) = crate::widgets::pile();
         Self {
             icons,
             side: None,
@@ -413,7 +430,10 @@ impl Menu {
             crumb_hits: Vec::new(),
             scrollbar: None,
             side_hits: Vec::new(),
-            media_hit: None,
+            widget_hits: Vec::new(),
+            widgets,
+            widget,
+            was_playing: false,
             hint_hits: Vec::new(),
             error: None,
             loading: None,
@@ -483,7 +503,10 @@ impl Menu {
     /// open.
     fn pin_target(&self) -> Option<String> {
         let filtering = self.model.screen().list.mode() == Mode::Filter;
-        let all_apps = self.model.dynamic_builtin() == Some(pt35_common::menu::Builtin::Apps);
+        let all_apps = matches!(
+            self.model.dynamic_builtin(),
+            Some(pt35_common::menu::Builtin::Apps | pt35_common::menu::Builtin::Widgets)
+        );
         // On the home, Y opens All apps: pins are made and undone there.
         let top = self.on_launcher() && self.model.depth() == 1 && !self.home();
         if !(top || all_apps) || filtering || self.side.is_some() {
@@ -572,6 +595,35 @@ impl Menu {
         self.popup = Some(popup);
     }
 
+    /// The next or the previous widget in the pile, round the ends.
+    fn flip_widget(&mut self, forward: bool) -> bool {
+        let count = self.widgets.len();
+        if count < 2 {
+            return true;
+        }
+        self.widget = if forward {
+            (self.widget + 1) % count
+        } else {
+            (self.widget + count - 1) % count
+        };
+        crate::widgets::set_shown(self.widgets[self.widget]);
+        true
+    }
+
+    /// Bring a widget to the front of the pile, pinning it if it was not.
+    fn show_widget(&mut self, widget: Widget) {
+        if !self.widgets.contains(&widget) {
+            if let Err(e) = crate::widgets::toggle_pin(widget) {
+                self.error = Some(format!("pinning: {e}"));
+            }
+            self.widgets = crate::widgets::pinned();
+        }
+        if let Some(at) = self.widgets.iter().position(|w| *w == widget) {
+            self.widget = at;
+            crate::widgets::set_shown(widget);
+        }
+    }
+
     /// The launcher is a home of pinned apps with the widget column.
     fn home(&self) -> bool {
         self.on_launcher()
@@ -656,7 +708,7 @@ impl Menu {
             "B" => Key::new(pt35_ui::keys::sym::BUTTON_B),
             "X" => Key::new(pt35_ui::keys::sym::BUTTON_X),
             "Y" => Key::new(pt35_ui::keys::sym::BUTTON_Y),
-            "R" => Key::new(pt35_ui::keys::sym::BUTTON_R),
+            "R" | "L R" => Key::new(pt35_ui::keys::sym::BUTTON_R),
             "X/Y" => Key::new(pt35_ui::keys::sym::DOWN),
             "Start" => Key::new(pt35_ui::keys::sym::PAUSE),
             "Enter" => Key::new(pt35_ui::keys::sym::RETURN),
@@ -878,10 +930,21 @@ impl Menu {
                         // It just moved: keep the cursor on it.
                         self.model.focus_payload(&payload);
                         let _ = pinned;
+                        if payload.starts_with("widget:") {
+                            self.widgets = crate::widgets::pinned();
+                            self.widget = self.widget.min(self.widgets.len().saturating_sub(1));
+                        }
                     }
                     Err(e) => self.error = Some(format!("pinning: {e}")),
                 }
                 true
+            }
+            Step::ShowWidget(id) => {
+                if let Some(widget) = Widget::from_id(&id) {
+                    self.show_widget(widget);
+                }
+                let step = self.model.go_home();
+                self.apply(step)
             }
             Step::Redraw | Step::Nothing => true,
         }
@@ -1484,7 +1547,8 @@ impl Menu {
         let gap = theme.menu.gap as i32;
         let w = WIDGET_WIDTH;
         let small = theme.font.size_hint;
-        let system_h = (bottom - top - gap) * 11 / 20;
+        // Half and half: the machine on top, the pile under it.
+        let system_h = (bottom - top - gap) / 2;
         self.draw_panel(canvas, x, top, w, system_h, "SYSTEM");
 
         let now = chrono::Local::now();
@@ -1555,97 +1619,290 @@ impl Menu {
             y += 22;
         }
 
-        let net_top = top + system_h + gap;
-        self.media_hit = None;
-        if let Some(media) = self.readings.media.clone() {
-            self.media_hit = Some((x, net_top, x + w, bottom));
-            self.draw_media(canvas, &media, x, net_top, w, bottom - net_top);
-            return;
-        }
-        self.draw_panel(canvas, x, net_top, w, bottom - net_top, "NETWORK");
-        let status = self.status.clone().unwrap_or_default();
-        let mut y = net_top + 40;
-        let name = match (&status.network, &status.ethernet, &self.readings.ssid) {
-            (None, _, _) => "Offline".to_string(),
-            (Some(iface), Some(wired), _) if iface == wired => "Ethernet".to_string(),
-            (_, _, Some(ssid)) => ssid.clone(),
-            (Some(iface), _, None) => iface.clone(),
-        };
-        let name = self.font.elide(&name, small, (w - 24) as u32);
-        self.font
-            .draw(canvas, &name, x + 12, y, small, theme.color.foreground);
-        if let Some(address) = self.readings.address.clone() {
-            y += 22;
-            self.mono
-                .draw(canvas, &address, x + 12, y, small, theme.color.muted);
-        }
-        if let Some(signal) = status.network_signal {
-            y += 12;
-            self.draw_segments(canvas, x + 12, y, w - 24, signal as f32 / 100.0);
-            y += 10;
-        }
-        if let Some((down, up)) = self.readings.rates {
-            y += 24;
-            let text = format!(
-                "↓ {}  ↑ {}",
-                crate::widgets::rate(down),
-                crate::widgets::rate(up)
+        let pile_top = top + system_h + gap;
+        let (h, count) = (bottom - pile_top, self.widgets.len());
+        self.widget_hits.clear();
+        let Some(&widget) = self.widgets.get(self.widget.min(count.saturating_sub(1))) else {
+            self.draw_panel(canvas, x, pile_top, w, h, "WIDGETS");
+            let text = self.font.elide("X: All widgets", small, (w - 24) as u32);
+            self.font.draw(
+                canvas,
+                &text,
+                x + 12,
+                pile_top + 40,
+                small,
+                theme.color.muted,
             );
-            let text = self.mono.elide(&text, small, (w - 24) as u32);
-            self.mono
-                .draw(canvas, &text, x + 12, y, small, theme.color.foreground);
+            return;
+        };
+        let title = widget.label().to_uppercase();
+        self.draw_panel(canvas, x, pile_top, w, h, &title);
+        if count > 1 {
+            // Where you are in the pile, in words: "2/3", then an arrow drawn
+            // as a shape, since a tap on the header is the next one.
+            let text = format!("{}/{}", self.widget + 1, count);
+            let tw = self.mono.measure(&text, small) as i32;
+            let (ax, ay) = (x + w - 16, pile_top + 4);
+            for i in 0..5 {
+                canvas.rect(
+                    ax + i,
+                    ay + i,
+                    1,
+                    (10 - 2 * i) as u32,
+                    theme.color.foreground,
+                );
+            }
+            self.mono.draw(
+                canvas,
+                &text,
+                ax - 8 - tw,
+                pile_top + 14,
+                small,
+                theme.color.foreground,
+            );
+            // As tall as a finger needs, over the top of the panel.
+            self.widget_hits
+                .push((x, pile_top, x + w, pile_top + 32, WidgetHit::Next));
+        }
+        match widget {
+            Widget::Network => self.draw_network(canvas, x, pile_top, w, h),
+            Widget::Media => self.draw_media(canvas, x, pile_top, w, h),
         }
     }
 
-    /// The player in place of the network while one plays or is paused. The
-    /// state is a shape and a word, never a colour alone. A tap plays or pauses.
-    fn draw_media(
-        &mut self,
-        canvas: &mut Canvas,
-        media: &crate::widgets::Media,
-        x: i32,
-        top: i32,
-        w: i32,
-        h: i32,
-    ) {
+    /// The route in use, LAN or Wi-Fi, and its last minutes on a log graph.
+    fn draw_network(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
         let theme = self.theme.clone();
         let small = theme.font.size_hint;
-        let fg = theme.color.foreground;
-        self.draw_panel(canvas, x, top, w, h, "MEDIA");
-        let mut y = top + 40;
-        let (ix, iy) = (x + 12, y - 11);
+        let status = self.status.clone().unwrap_or_default();
+        let (kind, name) = match (&status.network, &status.ethernet, &self.readings.ssid) {
+            (None, _, _) => ("OFFLINE", None),
+            (Some(iface), Some(wired), _) if iface == wired => ("LAN", None),
+            (Some(_), _, Some(ssid)) => ("WIFI", Some(ssid.clone())),
+            (Some(iface), _, None) => ("NET", Some(iface.clone())),
+        };
+        let y = top + 40;
+        self.mono_bold
+            .draw(canvas, kind, x + 12, y, small, theme.color.foreground);
+        if let Some(name) = name {
+            let nx = x + 12 + self.mono_bold.measure(kind, small) as i32 + 8;
+            let name = self
+                .font
+                .elide(&name, small, (x + w - 12 - nx).max(0) as u32);
+            self.font
+                .draw(canvas, &name, nx, y, small, theme.color.foreground);
+        }
+        if status.network.is_none() {
+            return;
+        }
+        if let Some(address) = self.readings.address.clone() {
+            self.mono
+                .draw(canvas, &address, x + 12, y + 20, small, theme.color.muted);
+        }
+        let chart = (x + 12, y + 30, w - 24, top + h - 30 - (y + 30));
+        let samples = self
+            .readings
+            .traffic
+            .as_ref()
+            .filter(|t| t.iface == status.network)
+            .map(|t| t.samples.clone())
+            .unwrap_or_default();
+        self.draw_traffic(canvas, chart, &samples);
+        let Some([down, up]) = samples.last().copied() else {
+            return;
+        };
+        // The legend is a shape, not a hue: a filled swatch for down, a dotted
+        // one for up, as on the graph.
+        let size = small * 0.875;
+        let base = top + h - 10;
+        let mut tx = x + 12;
+        for (i, text) in [
+            format!("↓{}", crate::widgets::rate(down)),
+            format!("↑{}", crate::widgets::rate(up)),
+        ]
+        .iter()
+        .enumerate()
+        {
+            if i == 0 {
+                canvas.rect_alpha(tx, base - 9, 8, 9, theme.color.foreground, 150);
+            } else {
+                canvas.rect(tx, base - 5, 3, 2, theme.color.accent);
+                canvas.rect(tx + 5, base - 5, 3, 2, theme.color.accent);
+            }
+            tx += 10;
+            self.mono
+                .draw(canvas, text, tx, base, size, theme.color.foreground);
+            tx += self.mono.measure(text, size) as i32 + 10;
+        }
+    }
+
+    /// Down as a filled area under a line, up as a dotted line, newest on the
+    /// right. Lines at 1k, 1M and 1G: the scale's units.
+    fn draw_traffic(
+        &mut self,
+        canvas: &mut Canvas,
+        (x, y, w, h): (i32, i32, i32, i32),
+        samples: &[[f32; 2]],
+    ) {
+        let theme = self.theme.clone();
+        if w < 8 || h < 8 {
+            return;
+        }
+        canvas.rect_alpha(x, y, w as u32, h as u32, theme.color.background, 110);
+        let label = theme.font.size_hint * 0.7;
+        for (level, text) in [(1.0, "1G"), (0.5, "1M"), (0.0, "1k")] {
+            let ly = y + h - 1 - ((h - 1) as f32 * level) as i32;
+            for dx in (0..w).step_by(5) {
+                canvas.rect(x + dx, ly, 2, 1, theme.color.border);
+            }
+            let tw = self.mono.measure(text, label) as i32;
+            let ty = if level == 1.0 { ly + 10 } else { ly - 2 };
+            if level > 0.0 {
+                self.mono
+                    .draw(canvas, text, x + w - 2 - tw, ty, label, theme.color.muted);
+            }
+        }
+        self.mono
+            .draw(canvas, "-3 min", x + 2, y + 10, label, theme.color.muted);
+        if samples.is_empty() {
+            return;
+        }
+        let step = (w - 1) as f32 / (pt35_common::ipc::TRAFFIC_SAMPLES - 1) as f32;
+        let at = |column: i32, which: usize| -> Option<i32> {
+            // Samples back from the newest, at this column.
+            let age = (w - 1 - column) as f32 / step;
+            let pos = samples.len() as f32 - 1.0 - age;
+            if pos < 0.0 {
+                return None;
+            }
+            let (i, f) = (pos.floor() as usize, pos.fract());
+            let a = samples[i][which];
+            let b = samples.get(i + 1).map_or(a, |s| s[which]);
+            let level = crate::widgets::log_level(a + (b - a) * f);
+            Some(y + h - 1 - ((h - 1) as f32 * level) as i32)
+        };
+        let (mut last_down, mut last_up) = (None, None);
+        for column in 0..w {
+            let cx = x + column;
+            if let Some(dy) = at(column, 0) {
+                canvas.rect_alpha(cx, dy, 1, (y + h - dy) as u32, theme.color.foreground, 90);
+                let from = last_down.unwrap_or(dy);
+                let (lo, hi) = (from.min(dy), from.max(dy));
+                canvas.rect(cx, lo, 1, (hi - lo + 2) as u32, theme.color.foreground);
+                last_down = Some(dy);
+            }
+            if let Some(uy) = at(column, 1) {
+                if column % 6 < 3 {
+                    let from = last_up.unwrap_or(uy);
+                    let (lo, hi) = (from.min(uy), from.max(uy));
+                    canvas.rect(cx, lo, 1, (hi - lo + 2) as u32, theme.color.accent);
+                }
+                last_up = Some(uy);
+            }
+        }
+    }
+
+    /// The player: what plays, how far in, and its three buttons. The state is
+    /// a shape and a word, never a colour alone. A tap elsewhere on the panel
+    /// plays or pauses, as before the buttons.
+    fn draw_media(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint;
+        let (fg, muted) = (theme.color.foreground, theme.color.muted);
+        let bottom = top + h;
+        // The cover's place: the theme's music icon in a frame.
+        let (bx, by, bs) = (x + 12, top + 28, 44);
+        canvas.frame(bx, by, bs as u32, bs as u32, theme.color.border);
+        if let Some(icon) = self.icons.get_symbolic("audio-x-generic", 32) {
+            icon.draw_tinted(canvas, bx + 6, by + 6, fg);
+        } else {
+            canvas.circle(bx + 19, by + 30, 5, fg);
+            canvas.rect(bx + 22, by + 10, 2, 20, fg);
+            canvas.rect(bx + 22, by + 10, 9, 3, fg);
+        }
+        let tx = bx + bs + 10;
+        let room = (x + w - 12 - tx).max(0) as u32;
+        let Some(media) = self.readings.media.clone() else {
+            self.mono
+                .draw(canvas, "STOPPED", tx, top + 44, small, muted);
+            let text = self.font.elide("Nothing playing", small, room);
+            self.font.draw(canvas, &text, tx, top + 64, small, muted);
+            return;
+        };
+        let (ix, iy) = (tx, top + 33);
         if media.playing {
-            for i in 0..6 {
-                canvas.rect(ix + i, iy + i, 1, (12 - 2 * i) as u32, fg);
+            for i in 0..5 {
+                canvas.rect(ix + i, iy + i, 1, (10 - 2 * i) as u32, fg);
             }
         } else {
-            canvas.rect(ix, iy, 4, 12, fg);
-            canvas.rect(ix + 7, iy, 4, 12, fg);
+            canvas.rect(ix, iy, 3, 10, fg);
+            canvas.rect(ix + 5, iy, 3, 10, fg);
         }
         let state = if media.playing { "PLAYING" } else { "PAUSED" };
-        self.mono.draw(canvas, state, x + 30, y, small, fg);
-        y += 24;
-        let title = self.font.elide(&media.title, small, (w - 24) as u32);
-        self.font.draw(canvas, &title, x + 12, y, small, fg);
+        self.mono
+            .draw(canvas, state, tx + 12, top + 43, small * 0.875, fg);
+        let title = self.font.elide(&media.title, small, room);
+        self.font.draw(canvas, &title, tx, top + 62, small, fg);
         if let Some(artist) = &media.artist {
-            y += 20;
-            let artist = self.font.elide(artist, small, (w - 24) as u32);
+            let artist = self.font.elide(artist, small * 0.875, room);
             self.font
-                .draw(canvas, &artist, x + 12, y, small, theme.color.muted);
+                .draw(canvas, &artist, tx, top + 79, small * 0.875, muted);
         }
         if let (Some(position), Some(length)) = (media.position, media.length) {
-            y += 12;
             let level = (position / length).clamp(0.0, 1.0) as f32;
-            self.draw_segments(canvas, x + 12, y, w - 24, level);
-            y += 34;
+            self.draw_segments(canvas, x + 12, top + 86, w - 24, level);
             let text = format!(
                 "{} / {}",
                 crate::widgets::clock(position),
                 crate::widgets::clock(length)
             );
             self.mono
-                .draw(canvas, &text, x + 12, y, small, theme.color.muted);
+                .draw(canvas, &text, x + 12, top + 114, small, muted);
         }
+        // Previous, play or pause, next: targets a thumb can hit, the middle
+        // one filled as the main action.
+        let (bw, bh, gap) = (60, 40, (w - 24 - 3 * 60) / 2);
+        let by = bottom - 12 - bh;
+        for (i, command) in ["previous", "play-pause", "next"].into_iter().enumerate() {
+            let bx = x + 12 + i as i32 * (bw + gap);
+            let main = i == 1;
+            let ink = if main {
+                canvas.rect(bx, by, bw as u32, bh as u32, fg);
+                theme.color.background
+            } else {
+                canvas.frame(bx, by, bw as u32, bh as u32, theme.color.border);
+                fg
+            };
+            let (cx, cy) = (bx + bw / 2, by + bh / 2);
+            let triangle = |canvas: &mut Canvas, left: i32, forward: bool| {
+                for k in 0..7 {
+                    let col = if forward { left + k } else { left + 6 - k };
+                    canvas.rect(col, cy - 7 + k, 1, (14 - 2 * k) as u32, ink);
+                }
+            };
+            match command {
+                "previous" => {
+                    canvas.rect(cx - 8, cy - 7, 2, 14, ink);
+                    triangle(canvas, cx - 5, false);
+                    triangle(canvas, cx + 2, false);
+                }
+                "next" => {
+                    triangle(canvas, cx - 8, true);
+                    triangle(canvas, cx - 1, true);
+                    canvas.rect(cx + 6, cy - 7, 2, 14, ink);
+                }
+                _ if media.playing => {
+                    canvas.rect(cx - 6, cy - 7, 4, 14, ink);
+                    canvas.rect(cx + 2, cy - 7, 4, 14, ink);
+                }
+                _ => triangle(canvas, cx - 3, true),
+            }
+            self.widget_hits
+                .push((bx, by, bx + bw, by + bh, WidgetHit::Player(command)));
+        }
+        // The rest of the panel under the header plays or pauses.
+        self.widget_hits
+            .push((x, top + 32, x + w, bottom, WidgetHit::Player("play-pause")));
     }
 
     /// A panel of the widget column: a flat surface with its name on a tab.
@@ -2558,14 +2815,24 @@ impl Menu {
         let mut hints = hints;
         // Y on a launcher row pins it: the one thing Y is free for at the top.
         // In Mouse mode Y is the wheel: a right click pins, from its menu.
-        // X still searches every app from the home, but the legend leaves it
-        // to All apps: four chips crowd the strip for a shortcut.
+        // Search is All apps' own: on the home X is every widget, and the
+        // shoulders flip the pile.
         if self.home() && !mouse {
             hints.retain(|hint| hint.button != "Y" && hint.button != "X");
+            hints.push(Hint {
+                button: "X",
+                action: "All widgets",
+            });
             hints.push(Hint {
                 button: "Y",
                 action: "All apps",
             });
+            if self.widgets.len() > 1 {
+                hints.push(Hint {
+                    button: "L R",
+                    action: "Widget",
+                });
+            }
         }
         if !mouse && self.pin_target().is_some() {
             // Not also Home: Y does one thing per screen.
@@ -2742,8 +3009,14 @@ impl App for Menu {
         // frame, then moves with the poll.
         let home_due = !self.readings.sampled() || self.since_poll >= POLL_TICKS;
         if self.home() && home_due {
-            let iface = self.status.as_ref().and_then(|s| s.network.clone());
-            self.readings.sample(iface.as_deref());
+            self.readings.sample();
+            let playing = self.readings.media.as_ref().is_some_and(|m| m.playing);
+            if playing && !self.was_playing {
+                if let Some(at) = self.widgets.iter().position(|w| *w == Widget::Media) {
+                    self.widget = at;
+                }
+            }
+            self.was_playing = playing;
             drawn = true;
         }
         if self.since_poll < POLL_TICKS {
@@ -2824,7 +3097,16 @@ impl App for Menu {
         }
         // The shoulders keep their meaning with the menu up: sway hands them
         // over while it is open, so the menu does what the binding would.
+        // Except on the home, where they flip the widget pile: the bar's mode
+        // icon is the mode switch there.
         let mode = self.model.screen().list.mode();
+        if self.home() && mode == Mode::Nav {
+            match pt35_ui::keys::button(&key, mode) {
+                Some(pt35_ui::keys::Button::R) => return self.flip_widget(true),
+                Some(pt35_ui::keys::Button::L) => return self.flip_widget(false),
+                _ => {}
+            }
+        }
         match pt35_ui::keys::button(&key, mode) {
             // Select is the switcher's key: it opens it, and on it, closes it.
             // A search keeps Select for clearing itself.
@@ -2876,11 +3158,11 @@ impl App for Menu {
                     self.open_here(pt35_common::menu::Builtin::Apps);
                     return true;
                 }
-                // A search is of every app, not of the pins.
+                // X is the way to every widget, where they are pinned. Typing
+                // still searches every app.
                 Navigation::StartFilter => {
-                    self.open_here(pt35_common::menu::Builtin::Apps);
-                    let step = self.model.handle(&key);
-                    return self.apply(step);
+                    self.open_here(pt35_common::menu::Builtin::Widgets);
+                    return true;
                 }
                 // No side column: the grid's edge is the screen's.
                 Navigation::Right if !self.launcher_moves_right() => return true,
@@ -3056,10 +3338,19 @@ impl App for Menu {
                 return self.open_side(index);
             }
         }
-        if let Some((left, top, right, bottom)) = self.media_hit {
-            if self.home() && x >= left && x < right && y >= top && y < bottom {
-                self.readings.play_pause();
-                return true;
+        if self.home() {
+            let hit = self
+                .widget_hits
+                .iter()
+                .find(|(l, t, r, b, _)| x >= *l && x < *r && y >= *t && y < *b)
+                .map(|hit| hit.4);
+            match hit {
+                Some(WidgetHit::Next) => return self.flip_widget(true),
+                Some(WidgetHit::Player(command)) => {
+                    self.readings.control(command);
+                    return true;
+                }
+                None => {}
             }
         }
         for (left, top, right, bottom, index) in self.row_hits.clone() {

@@ -31,6 +31,7 @@ usage:
   pt35ctl touch on|off|toggle
   pt35ctl reload
   pt35ctl status [--json]
+  pt35ctl traffic
 ";
 
 fn main() {
@@ -63,6 +64,10 @@ fn run() -> Result<()> {
                     print_status(&s);
                     Ok(())
                 }
+                Response::Traffic(t) => {
+                    println!("{}", serde_json::to_string(&t)?);
+                    Ok(())
+                }
             }
         }
     }
@@ -80,7 +85,7 @@ fn status(json: bool) -> Result<()> {
             Ok(())
         }
         Response::Error { message } => bail!(message),
-        Response::Ok => bail!("daemon returned no status"),
+        Response::Ok | Response::Traffic(_) => bail!("daemon returned no status"),
     }
 }
 

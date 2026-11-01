@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.2+u12 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u11 with a pile of widgets on the
+home and a throughput graph.
+
+### Added
+
+- Widget pile: the bottom of the home's widget column shows one pinned
+  widget at a time, with `1/2` in its header. L and R flip it on the
+  home, and so does a tap on the header. A player that starts brings
+  Media to the front.
+- All widgets (X on the home, `pt35ctl menu open widgets`): Y pins or
+  unpins, A shows one. Pins in `~/.local/state/pt35/widgets`.
+- Network graph: the last three minutes, down as a filled area and up as
+  a dotted line, on a log scale from 1 kb/s to 1 Gb/s with lines at k, M
+  and G. `pt35d` keeps the history; `pt35ctl traffic` prints it.
+- Media: previous, play or pause, and next buttons, a music icon, and the
+  state in words beside it.
+
+### Changed
+
+- The widget column is split half and half.
+- Network names the route in use: LAN, WIFI and the SSID, or OFFLINE.
+  Rates are in bits (`kb/s`, `Mb/s`). The Wi-Fi signal bar is left to
+  the top bar.
+- On the home, X opens All widgets instead of searching; typing still
+  searches every app. L and R no longer switch mode there: the bar's
+  mode icon does.
+
 ## 0.4.2+u11 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u10 without Find on the home's
