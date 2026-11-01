@@ -29,9 +29,11 @@ pub struct Effects {
     pub scanline_period: u32,
     /// A halo round the big readouts (the home's clock), in pixels.
     pub glow: u32,
-    /// A band of light rolls down the screen every this many seconds, like
-    /// a CRT's refresh. 0 is never.
+    /// A band of light rolls down the screen, like a CRT's refresh, at
+    /// least this many seconds apart. 0 is never.
     pub sweep: u32,
+    /// Up to this many seconds more between two bands, at random.
+    pub sweep_jitter: u32,
     /// How bright the band is at its middle, in percent.
     pub sweep_strength: u8,
 }
@@ -43,6 +45,7 @@ impl Default for Effects {
             scanline_period: 2,
             glow: 0,
             sweep: 0,
+            sweep_jitter: 0,
             sweep_strength: 8,
         }
     }

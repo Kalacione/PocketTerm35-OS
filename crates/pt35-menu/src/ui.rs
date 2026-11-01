@@ -761,6 +761,27 @@ impl Menu {
                 true
             }
             Step::Adjust(adjust, up) => {
+                if adjust == pt35_common::menu::Adjust::TileOpacity {
+                    // A theme pick, so Appearance's file, not the daemon.
+                    let now = self.theme.menu.tile_opacity.min(100) as i64;
+                    let next = if up { now + 5 } else { now - 5 }
+                        .clamp(providers::TILE_OPACITY_MIN as i64, 100);
+                    let entry = [("tile_opacity", toml::Value::Integer(next))];
+                    match pt35_common::set_appearance("menu", &entry, false) {
+                        Ok(()) => self.theme = pt35_common::load_theme(),
+                        Err(e) => self.error = Some(e.to_string()),
+                    }
+                    if let Some(items) = self.model.dynamic_items() {
+                        let mut items = items.to_vec();
+                        for item in items.iter_mut() {
+                            if item.payload == "adjust:tile_opacity" {
+                                *item = providers::opacity_row(self.theme.menu.tile_opacity);
+                            }
+                        }
+                        self.model.replace_dynamic(items);
+                    }
+                    return true;
+                }
                 let args = adjust.step(up);
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
                 if let Err(message) = self.ctl(&args) {

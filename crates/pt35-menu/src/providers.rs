@@ -520,6 +520,13 @@ pub fn quick() -> Items {
         },
         volume_row(volume, muted),
         brightness_row(brightness),
+    ]);
+    // Only with a home: it is the one screen with tiles over a wallpaper.
+    let menu = pt35_common::load_theme().menu;
+    if menu.launcher_home {
+        rows.push(opacity_row(menu.tile_opacity));
+    }
+    rows.extend([
         Item {
             label: "Networks".into(),
             payload: "screen:wifi".into(),
@@ -577,6 +584,25 @@ fn volume_row(volume: u8, muted: bool) -> Item {
         },
         glyph: format!("slide:{}", if muted { 0 } else { volume }),
         icon: pt35_ui::icon::volume_icon(volume, muted).into(),
+        ..Item::default()
+    }
+}
+
+/// Lowest the slider goes: below it a tile is a label on the wallpaper.
+pub const TILE_OPACITY_MIN: u8 = 20;
+
+pub fn opacity_row(percent: u8) -> Item {
+    let percent = percent.min(100);
+    Item {
+        label: "Tiles".into(),
+        payload: "adjust:tile_opacity".into(),
+        note: format!("{percent}%"),
+        glyph: format!(
+            "slide:{}",
+            (percent - TILE_OPACITY_MIN.min(percent)) as u32 * 100
+                / (100 - TILE_OPACITY_MIN) as u32
+        ),
+        icon: "preferences-desktop-wallpaper".into(),
         ..Item::default()
     }
 }
