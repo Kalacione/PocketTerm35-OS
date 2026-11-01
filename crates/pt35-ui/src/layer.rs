@@ -46,6 +46,7 @@ use wayland_client::{
 
 use crate::canvas::Canvas;
 use crate::keys::Key;
+use crate::rain::scatter;
 use crate::touch::Finger;
 
 /// Where a surface sits and how much space it reserves.
@@ -128,14 +129,6 @@ const SWEEP_TIME: u64 = 1600;
 const SWEEP_HALF: i32 = 40;
 /// The panel's height. The shell runs on one panel.
 const SCREEN_HEIGHT: i32 = 480;
-
-/// splitmix64: the same number for the same slot in every process.
-fn scatter(slot: u64) -> u64 {
-    let mut z = slot.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    z ^ (z >> 31)
-}
 
 impl Sweep {
     /// The theme's sweep for a surface whose first line is `top` on screen.

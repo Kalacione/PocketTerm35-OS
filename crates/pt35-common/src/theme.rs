@@ -36,6 +36,9 @@ pub struct Effects {
     pub sweep_jitter: u32,
     /// How bright the band is at its middle, in percent.
     pub sweep_strength: u8,
+    /// Slow falling glyphs behind the home, the head this bright in percent.
+    /// 0 is off.
+    pub rain: u8,
 }
 
 impl Default for Effects {
@@ -47,6 +50,7 @@ impl Default for Effects {
             sweep: 0,
             sweep_jitter: 0,
             sweep_strength: 8,
+            rain: 0,
         }
     }
 }

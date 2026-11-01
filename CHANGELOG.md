@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2+u19 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u18 with rain behind the home.
+
+### Added
+
+- `[effects] rain`: hex glyphs fall slowly behind the home, one row a
+  tick (4 a second), the head this many percent bright. Most columns are
+  dark at any moment. Off by default. The menu draws it, so it stops with
+  the menu and never runs over an app.
+
 ## 0.4.2+u18 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u17 with a finger that scrolls.

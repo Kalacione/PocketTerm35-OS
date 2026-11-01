@@ -637,6 +637,10 @@ impl Menu {
     }
 
     /// The launcher is a home of pinned apps with the widget column.
+    fn raining(&self) -> bool {
+        self.theme.effects.rain > 0 && self.home()
+    }
+
     fn home(&self) -> bool {
         self.on_launcher()
             && self.theme.menu.launcher_home
@@ -3273,6 +3277,8 @@ impl App for Menu {
                 drawn = true;
             }
         }
+        // One rain step a tick.
+        drawn |= self.raining();
         self.since_poll += 1;
         // The widget column fills in on the first tick, not before the first
         // frame, then moves with the poll.
@@ -3721,6 +3727,16 @@ impl App for Menu {
                 wallpaper.draw(canvas);
             }
         }
+        if self.raining() {
+            pt35_ui::rain::draw(
+                canvas,
+                &mut self.mono,
+                rain_step(),
+                self.theme.effects.rain,
+                self.theme.color.foreground,
+                self.theme.color.background,
+            );
+        }
         let hint_top = canvas.height as i32 - self.theme.menu.hint_height as i32;
         // Where the screen's own content stops: above the hints, and above an
         // error when there is one. The hints stay where they are, or they
@@ -3799,6 +3815,14 @@ impl App for Menu {
         self.draw_hints(canvas, hint_top);
         self.draw_popup(canvas);
     }
+}
+
+fn rain_step() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+        / TICK.as_millis() as u64
 }
 
 pub fn run(page: Option<String>) -> Result<()> {

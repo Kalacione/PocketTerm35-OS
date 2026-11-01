@@ -17,6 +17,7 @@ pub mod icon;
 pub mod keys;
 pub mod list;
 pub mod pixel;
+pub mod rain;
 pub mod touch;
 pub mod wallpaper;
 
