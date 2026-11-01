@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2+u16 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u15 with hosts checked again soon
+after boot.
+
+### Fixed
+
+- At boot the Hosts widget read DOWN for two minutes: `pt35d` checks
+  before the network is up. Until a host answers, it checks again after
+  10 s, then 20, 40 and 80, up to the usual two minutes.
+
 ## 0.4.2+u15 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u14 with pinned tiles that can be
