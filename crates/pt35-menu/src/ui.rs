@@ -283,6 +283,8 @@ pub struct Menu {
     cards_drawn: Vec<i64>,
     /// A drag that began on the scrollbar, until the button or finger lifts.
     scrolling: bool,
+    /// A finger's pan not yet worth a whole line, in pixels.
+    pan: f64,
     /// Drawn under the launcher. `None` keeps the theme's background.
     wallpaper: Option<pt35_ui::wallpaper::Wallpaper>,
     /// `[font] family_display`, for the clock. None draws it in mono.
@@ -453,6 +455,7 @@ impl Menu {
             bad_previews: std::collections::HashMap::new(),
             cards_drawn: Vec::new(),
             scrolling: false,
+            pan: 0.0,
             wallpaper: None,
             display: None,
         }
@@ -3527,6 +3530,64 @@ impl App for Menu {
 
     fn touch_end(&mut self) {
         self.scrolling = false;
+    }
+
+    /// The finger on the scrollbar takes it at once, as a click does. Anywhere
+    /// else it only lights the row under it: the tap waits for the lift.
+    fn touch_down(&mut self, x: f64, y: f64) -> bool {
+        self.pan = 0.0;
+        if self.popup.is_none() && !self.moving && self.on_scrollbar(x as i32, y as i32) {
+            self.scrolling = true;
+            return self.scroll_to(y as i32);
+        }
+        self.hover(x, y)
+    }
+
+    /// A list follows the finger a line at a time. The window switcher's
+    /// strip follows it a card at a time, so a swipe left brings the next one.
+    fn pan(&mut self, _x: f64, y: f64, dx: f64, dy: f64) -> bool {
+        if self.scrolling {
+            return self.scroll_to(y as i32);
+        }
+        if self.popup.is_some() || self.moving {
+            return false;
+        }
+        let picker = self.model.dynamic_builtin() == Some(pt35_common::menu::Builtin::Windows);
+        let Some(first) = self.row_hits.first().copied() else {
+            return false;
+        };
+        // One step is the distance from one row (or card) to the next, as drawn.
+        let step = if picker {
+            self.row_hits.get(1).map(|hit| hit.0 - first.0)
+        } else {
+            self.row_hits
+                .iter()
+                .map(|hit| hit.1 - first.1)
+                .find(|d| *d > 0)
+        };
+        let Some(step) = step.filter(|s| *s > 0).map(f64::from) else {
+            return false;
+        };
+        self.pan += if picker { dx } else { dy };
+        let lines = (self.pan / step).trunc();
+        if lines == 0.0 {
+            return false;
+        }
+        self.pan -= lines * step;
+        if picker {
+            let sym = if lines < 0.0 {
+                pt35_ui::keys::sym::RIGHT
+            } else {
+                pt35_ui::keys::sym::LEFT
+            };
+            for _ in 0..lines.abs() as usize {
+                self.key(Key::new(sym));
+            }
+            return true;
+        }
+        self.side = None;
+        // The content moves with the finger: up shows what is further down.
+        self.model.screen_mut().list.scroll_by(-lines as isize)
     }
 
     /// A right click opens the row's menu, the way it does on any desktop.

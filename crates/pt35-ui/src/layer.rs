@@ -37,7 +37,7 @@ use smithay_client_toolkit::{
 use smithay_client_toolkit::reexports::protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{
     Shape, WpCursorShapeDeviceV1,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wayland_client::{
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_pointer, wl_shm, wl_surface, wl_touch},
@@ -46,6 +46,7 @@ use wayland_client::{
 
 use crate::canvas::Canvas;
 use crate::keys::Key;
+use crate::touch::Finger;
 
 /// Where a surface sits and how much space it reserves.
 pub struct SurfaceSpec {
@@ -236,11 +237,25 @@ pub trait App {
     /// held, such as the pointer's D-pad movement.
     fn key_release(&mut self, _key: Key) {}
 
-    /// A tap at surface coordinates. Touch is the recovery path when the RP2040
-    /// that owns the keyboard drops off the USB bus, so anything reachable by
+    /// A tap at surface coordinates: a click's release, or a finger that
+    /// lifted where it landed. Touch is the recovery path when the RP2040 that
+    /// owns the keyboard drops off the USB bus, so anything reachable by
     /// button should answer this too.
     fn touch(&mut self, _x: f64, _y: f64) -> bool {
         true
+    }
+
+    /// A finger came down. Nothing acts yet: lifting it is [`App::touch`],
+    /// moving it is [`App::pan`], holding it is [`App::back_click`]. Hover by
+    /// default, so the row under the finger lights up. True to repaint.
+    fn touch_down(&mut self, x: f64, y: f64) -> bool {
+        self.hover(x, y)
+    }
+
+    /// The finger moved past the tap slop and is now at `x`, `y`, by `dx`,
+    /// `dy` since the last call. True to repaint.
+    fn pan(&mut self, _x: f64, _y: f64, _dx: f64, _dy: f64) -> bool {
+        false
     }
 
     /// The pointer moved to surface coordinates. Return true to repaint.
@@ -248,16 +263,17 @@ pub trait App {
         false
     }
 
-    /// The pointer moved with a button held, or a finger moved. Hover unless
-    /// the app has something to drag.
+    /// The pointer moved with a button held. Hover unless the app has
+    /// something to drag.
     fn drag(&mut self, x: f64, y: f64) -> bool {
         self.hover(x, y)
     }
 
-    /// The last finger came off. A pointer's release is [`App::touch`].
+    /// The last finger came off, after its tap if it was one. A pointer's
+    /// release is [`App::touch`].
     fn touch_end(&mut self) {}
 
-    /// A right click at surface coordinates.
+    /// A right click at surface coordinates, or a long press.
     fn back_click(&mut self, _x: f64, _y: f64) -> bool {
         true
     }
@@ -342,6 +358,8 @@ struct State<A: App + 'static> {
     /// because a pointer leaving says nothing about a finger.
     buttons: u32,
     fingers: Vec<i32>,
+    /// The first finger down, the only one that taps, pans or long-presses.
+    finger: Option<Finger>,
     /// Whether the last frame was mid-motion. The frame after the motion ends
     /// is the one that puts things exactly where they stop.
     was_animating: bool,
@@ -408,6 +426,7 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
         raised: false,
         buttons: 0,
         fingers: Vec::new(),
+        finger: None,
         was_animating: false,
         app,
     };
@@ -443,7 +462,12 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
             let next = sweep.map_or(Duration::MAX, |s| s.until_next());
             Duration::from_millis(500).min(next)
         };
+        let long_press = state.finger.as_ref().and_then(Finger::long_press_at);
+        let wait = long_press.map_or(wait, |at| {
+            wait.min(at.saturating_duration_since(Instant::now()))
+        });
         event_loop.dispatch(wait, &mut state)?;
+        state.long_press();
         let sweeping = state.app.sweep().and_then(|s| s.position()).is_some();
         let animating = state.app.animating() || sweeping;
         if animating || state.was_animating {
@@ -472,6 +496,23 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
 }
 
 impl<A: App + 'static> State<A> {
+    fn long_press(&mut self) {
+        let now = Instant::now();
+        let Some(finger) = self
+            .finger
+            .as_mut()
+            .filter(|f| f.long_press_at().is_some_and(|at| now >= at))
+        else {
+            return;
+        };
+        finger.spend();
+        let (x, y) = finger.start();
+        if !self.app.back_click(x, y) {
+            self.running = false;
+        }
+        self.dirty = true;
+    }
+
     fn draw(&mut self, qh: &QueueHandle<Self>) {
         let (width, height) = (self.width, self.height);
         let stride = width as i32 * 4;
@@ -840,10 +881,13 @@ impl<A: App + 'static> TouchHandler for State<A> {
         if !self.fingers.contains(&id) {
             self.fingers.push(id);
         }
-        if !self.app.touch(position.0, position.1) {
-            self.running = false;
+        // A second finger does nothing: no multi-finger gestures.
+        if self.finger.is_none() {
+            self.finger = Some(Finger::new(id, position, Instant::now()));
+            if self.app.touch_down(position.0, position.1) {
+                self.dirty = true;
+            }
         }
-        self.dirty = true;
     }
 
     fn up(
@@ -856,6 +900,15 @@ impl<A: App + 'static> TouchHandler for State<A> {
         id: i32,
     ) {
         self.fingers.retain(|f| *f != id);
+        if let Some(finger) = self.finger.take_if(|f| f.id() == id) {
+            if finger.is_tap() {
+                let (x, y) = finger.start();
+                if !self.app.touch(x, y) {
+                    self.running = false;
+                }
+                self.dirty = true;
+            }
+        }
         if self.fingers.is_empty() {
             self.app.touch_end();
             self.dirty = true;
@@ -868,11 +921,16 @@ impl<A: App + 'static> TouchHandler for State<A> {
         _: &QueueHandle<Self>,
         _: &wl_touch::WlTouch,
         _: u32,
-        _: i32,
+        id: i32,
         position: (f64, f64),
     ) {
-        if self.app.drag(position.0, position.1) {
-            self.dirty = true;
+        let Some(finger) = self.finger.as_mut().filter(|f| f.id() == id) else {
+            return;
+        };
+        if let Some((dx, dy)) = finger.moved(position) {
+            if self.app.pan(position.0, position.1, dx, dy) {
+                self.dirty = true;
+            }
         }
     }
 
@@ -899,6 +957,7 @@ impl<A: App + 'static> TouchHandler for State<A> {
 
     fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch) {
         self.fingers.clear();
+        self.finger = None;
         self.app.touch_end();
         self.dirty = true;
     }

@@ -198,6 +198,25 @@ impl ListState {
         before != (self.offset, self.selected)
     }
 
+    /// Scroll the drawn window by whole lines (rows of tiles in a grid),
+    /// down for positive, and keep the cursor inside it. True if it moved.
+    pub fn scroll_by(&mut self, lines: isize) -> bool {
+        let page = self.page();
+        let total = self.len();
+        if total <= page {
+            return false;
+        }
+        // Up to the line that shows the last item, as the D-pad gets there.
+        let last = (total - page).div_ceil(self.columns) * self.columns;
+        let offset = (self.offset as isize + lines * self.columns as isize).clamp(0, last as isize);
+        let before = (self.offset, self.selected);
+        self.offset = offset as usize;
+        self.selected = self
+            .selected
+            .clamp(self.offset, (self.offset + page - 1).min(total - 1));
+        before != (self.offset, self.selected)
+    }
+
     /// Where the drawn window sits, 0.0 at the top and 1.0 at the bottom.
     /// `None` when everything fits and there is nothing to scroll.
     ///
@@ -379,6 +398,32 @@ mod tests {
         assert!(!short.clone().scroll_to(1.0), "everything fits");
     }
     use crate::keys::sym;
+
+    #[test]
+    fn a_pan_scrolls_by_lines_and_stops_at_the_ends() {
+        let mut list = ListState::new((0..20).map(|i| i.to_string()).collect(), 5);
+        assert!(list.scroll_by(3));
+        assert_eq!((list.offset(), list.selected_position()), (3, 3));
+        assert!(list.scroll_by(100));
+        assert_eq!(list.offset(), 15);
+        assert!(!list.scroll_by(1), "already at the end");
+        assert!(list.scroll_by(-100));
+        assert_eq!(list.offset(), 0);
+        assert_eq!(
+            list.selected_position(),
+            4,
+            "the cursor stays in the window"
+        );
+    }
+
+    #[test]
+    fn a_grid_pans_to_its_last_row() {
+        // 10 tiles, 3 across, 3 lines: the last tile is on the fourth line.
+        let mut list = ListState::new((0..10).map(|i| i.to_string()).collect(), 3).with_columns(3);
+        assert!(list.scroll_by(5));
+        assert_eq!(list.offset(), 3);
+        assert_eq!(list.window().len(), 7);
+    }
 
     fn list() -> ListState {
         ListState::new(

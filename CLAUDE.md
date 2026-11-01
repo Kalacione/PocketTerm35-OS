@@ -189,7 +189,10 @@ window appears in front.
   dock slot tapped over the menu takes the menu down. The mode icon toggles
   the mode; volume, network and the clock open Audio, Network and Quick.
   Bar and menu act on button release, not press: in Mouse mode a click is a
-  held A, and a mode switch rebinds A. No names by default (`dock_labels`):
+  held A, and a mode switch rebinds A. A finger acts on lift too
+  (`pt35-ui`'s `touch.rs`, foot's model): past 12 px it pans and never taps,
+  held 500 ms it is a right click. A pan scrolls by whole lines, not pixels.
+  No names by default (`dock_labels`):
   they crowd out by the third window. A window never loses its slot, and one
   with no icon of its own gets the generic app icon.
   No "nothing open" text: with no windows the menu covers the bar.
