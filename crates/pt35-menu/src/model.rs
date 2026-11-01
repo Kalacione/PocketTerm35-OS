@@ -107,6 +107,8 @@ pub struct Model {
     rows: usize,
     grid_rows: usize,
     columns: usize,
+    /// Rows and columns of the launcher when it is a grid.
+    launcher: Option<(usize, usize)>,
     /// Depth of the screen the menu was opened on, when that was not the root:
     /// the picker from R, Power from the power key. Back there means "put me
     /// back where I was", not "show me what is underneath".
@@ -129,6 +131,7 @@ impl Model {
             rows: rows.max(1),
             grid_rows: grid_rows.max(1),
             columns: columns.max(1),
+            launcher: None,
             entry: 1,
         };
         let root = page
@@ -293,6 +296,11 @@ impl Model {
         });
     }
 
+    /// Lay the launcher out as a grid. Call before the launcher is built.
+    pub fn launcher_grid(&mut self, rows: usize, columns: usize) {
+        self.launcher = (columns > 1).then_some((rows.max(1), columns));
+    }
+
     /// Open a page from menu.toml by id, on top of what is there.
     pub fn open_page(&mut self, id: &str) {
         self.push_page(id);
@@ -354,6 +362,12 @@ impl Model {
             .collect();
         match layout {
             Layout::Grid => ListState::new(labels, self.grid_rows).with_columns(self.columns),
+            Layout::List if builtin == Builtin::Launcher && self.launcher.is_some() => {
+                let (rows, columns) = self.launcher.unwrap_or((1, 1));
+                ListState::new(labels, rows)
+                    .with_columns(columns)
+                    .with_keywords(keywords)
+            }
             // The quick panel is one screenful by design: it never scrolls.
             // The switcher strip draws every card and scrolls itself.
             Layout::List if matches!(builtin, Builtin::Quick | Builtin::Windows) => {
@@ -848,6 +862,26 @@ entries = [
         // B still is.
         assert_eq!(model.handle(&Key::with_text('b' as u32, 'b')), Step::Redraw);
         assert_eq!(model.depth(), 1);
+    }
+
+    #[test]
+    fn the_launcher_can_be_a_grid() {
+        let mut model = model();
+        model.launcher_grid(3, 4);
+        let items = (0..10)
+            .map(|i| crate::providers::Item::new(format!("App {i}"), format!("app:{i}")))
+            .collect();
+        model.set_root_dynamic(Builtin::Launcher, "Launcher", items);
+        let list = &model.screen().list;
+        assert_eq!((list.rows(), list.columns()), (3, 4));
+        press(&mut model, sym::RIGHT);
+        assert_eq!(
+            model.screen().list.selected_position(),
+            1,
+            "Right moves along"
+        );
+        press(&mut model, sym::DOWN);
+        assert_eq!(model.screen().list.selected_position(), 5, "Down is a line");
     }
 
     #[test]

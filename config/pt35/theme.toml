@@ -71,6 +71,10 @@ columns       = 3
 tile_height   = 86
 gap           = 10
 scrollbar_width = 8      # also a target: click the track, drag the thumb
+launcher_columns = 1     # 2 or more: the launcher is a grid of big icons
+
+[effects]
+scanlines     = 0        # CRT lines, % darker; pt35-bar --scanlines covers apps
 
 # GTK and Qt apps. dark | light | keep (leave the desktop settings alone).
 # Applied through gsettings at login and on reload; Qt follows GTK.
@@ -85,6 +89,8 @@ gtk_light     = "Adwaita"
 theme         = "Papirus-Dark"
 size_bar      = 18
 size_tile     = 32
+size_launcher = 64       # launcher grid only, see [menu] launcher_columns
+glow          = 0        # halo under launcher grid icons, in pixels
 
 # Mouse mode. 16px at 40 repeats a second crosses the 640px panel in a second,
 # and still lands on a 24px close button.

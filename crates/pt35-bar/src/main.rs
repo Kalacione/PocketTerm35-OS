@@ -17,6 +17,9 @@ mod ui;
 #[cfg(target_os = "linux")]
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    if std::env::args().any(|arg| arg == "--scanlines") {
+        return ui::run_scanlines();
+    }
     ui::run()
 }
 

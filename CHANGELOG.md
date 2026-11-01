@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.2+u2 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u1 plus a launcher grid and screen effects.
+
+### Added
+
+- `[menu] launcher_columns`: 2 or more lays the launcher out as a grid,
+  icon above name, at `[icons] size_launcher` (64). The picked tile is
+  filled in `accent` and its icon drawn in `accent_fg`. Right leaves the
+  grid for the side column from the last tile of a line. 1, the default,
+  keeps the list.
+- `[icons] glow`: a soft halo under each grid icon, in pixels. 0, the
+  default, draws none.
+- `[effects] scanlines`: CRT lines on the bar and the menu, every other
+  line darker by this many percent. `pt35-bar --scanlines` lays them over
+  the apps as a click-through overlay below the bar; start it from your
+  sway config. 0, the default, draws none.
+
+### Fixed
+
+- The scrollbar thumb of a grid is sized by tiles, not lines.
+
 ## 0.4.2+u1 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2 plus one change.

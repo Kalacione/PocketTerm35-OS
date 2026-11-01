@@ -13,6 +13,23 @@ pub struct Theme {
     pub buttons: Buttons,
     pub icons: IconTheme,
     pub apps: Apps,
+    pub effects: Effects,
+}
+
+/// Looks that cost a little on every frame. All off by default.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Effects {
+    /// CRT scanlines on the bar and the menu: every other line darkened by
+    /// this many percent. `pt35-bar --scanlines` lays them over the apps too.
+    pub scanlines: u8,
+}
+
+impl Effects {
+    /// The scanline darkness as an alpha.
+    pub fn scanline_alpha(&self) -> u8 {
+        (self.scanlines.min(100) as u32 * 255 / 100) as u8
+    }
 }
 
 /// How GTK and Qt apps are drawn. The shell is dark; an app in the Pi's light
@@ -144,6 +161,9 @@ pub struct Menu {
     /// Width of the list's scrollbar. It is a target too: a click on the
     /// track jumps there and a drag moves the list.
     pub scrollbar_width: u32,
+    /// The launcher as a grid this many tiles across: icon above name, at
+    /// `[icons] size_launcher`. 1 keeps the list.
+    pub launcher_columns: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -194,6 +214,10 @@ pub struct IconTheme {
     pub size_bar: u32,
     /// The badge on a menu tile and a dock slot.
     pub size_tile: u32,
+    /// A tile of the launcher grid (`[menu] launcher_columns`).
+    pub size_launcher: u32,
+    /// Width in pixels of the halo under a launcher grid icon. 0 for none.
+    pub glow: u32,
 }
 
 impl Default for IconTheme {
@@ -202,6 +226,8 @@ impl Default for IconTheme {
             theme: "Papirus-Dark".into(),
             size_bar: 18,
             size_tile: 32,
+            size_launcher: 64,
+            glow: 0,
         }
     }
 }
@@ -361,6 +387,7 @@ impl Default for Menu {
             tile_height: 86,
             gap: 10,
             scrollbar_width: 8,
+            launcher_columns: 1,
         }
     }
 }
