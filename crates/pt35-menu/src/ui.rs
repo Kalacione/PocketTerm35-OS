@@ -1048,7 +1048,7 @@ impl Menu {
         canvas.rounded_rect(
             pad / 2,
             pill + 3,
-            canvas.width - pad as u32,
+            self.pill_width(canvas.width),
             (row_h - 6) as u32,
             radius,
             theme.color.accent,
@@ -1233,6 +1233,17 @@ impl Menu {
     ///
     /// `edge` is the right-hand boundary of the list, which is the panel edge on
     /// most screens and the split on the launcher.
+    /// The selection pill stops short of the scrollbar rather than run under it.
+    fn pill_width(&self, width: u32) -> u32 {
+        let pad = self.theme.menu.padding_x / 2;
+        let right = if self.model.screen().list.scroll_progress().is_some() {
+            width.saturating_sub(self.theme.menu.scrollbar_width + 4)
+        } else {
+            width.saturating_sub(pad)
+        };
+        right.saturating_sub(pad)
+    }
+
     fn draw_scrollbar(&mut self, canvas: &mut Canvas, edge: i32, top: i32, bottom: i32) {
         let Some(progress) = self.model.screen().list.scroll_progress() else {
             return;
@@ -2266,7 +2277,7 @@ impl Menu {
         if !readonly {
             let y = self.motion.glide(top + cursor as i32 * row_h);
             if framed {
-                let (w, h) = (canvas.width - pad as u32, (row_h - 6) as u32);
+                let (w, h) = (self.pill_width(canvas.width), (row_h - 6) as u32);
                 canvas.rounded_rect(pad / 2, y + 3, w, h, theme.menu.radius, theme.color.accent);
             } else {
                 canvas.rect(0, y, canvas.width, row_h as u32, theme.color.background_alt);
@@ -2445,16 +2456,18 @@ impl Menu {
     /// the state written in the free half as 0 or 1, so it never rests on
     /// colour alone. Returns its left edge.
     fn draw_toggle(&mut self, canvas: &mut Canvas, right: i32, centre: i32, on: bool) -> i32 {
-        let (w, h) = (52, 26);
+        let (w, h) = (64, 26);
         let (x, y) = (right - w, centre - h / 2);
         let theme = &self.theme;
-        let (fill, ink) = if on {
-            (theme.color.ok, theme.color.ok.ink())
+        // The word carries the state; the colour and the knob's side back it up.
+        let (fill, text) = if on {
+            (theme.color.ok, "ON")
         } else {
-            (theme.color.border, theme.color.muted)
+            (theme.color.critical, "OFF")
         };
+        let ink = fill.ink();
         canvas.rect(x, y, w as u32, h as u32, fill);
-        let knob_w = 23;
+        let knob_w = 20;
         let knob_x = if on { x + w - knob_w - 3 } else { x + 3 };
         canvas.rect(
             knob_x,
@@ -2463,7 +2476,6 @@ impl Menu {
             (h - 6) as u32,
             theme.color.background,
         );
-        let text = if on { "1" } else { "0" };
         let free = if on { x } else { x + knob_w + 3 };
         let (face, size) = match self.display.as_mut() {
             Some(display) => (display, 24.0),

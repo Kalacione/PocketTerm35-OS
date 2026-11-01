@@ -10,8 +10,13 @@ settings as a list.
 - `[menu] row_frames`: list icons sit in a square frame. Quick settings
   is then drawn like any list: full rows that scroll, the list's
   selection with its ink, hairlines between rows, and switches as a
-  knob with the state written as 0 or 1 beside it, in the display face
-  when there is one. Off by default.
+  knob with ON or OFF beside it, in the display face when there is one:
+  green when on, red when off. Off by default.
+
+### Fixed
+
+- The selection pill stops short of the scrollbar instead of running
+  under it.
 
 ## 0.4.2+u8 (2026-11-01)
 
