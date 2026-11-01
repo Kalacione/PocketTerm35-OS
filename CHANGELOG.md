@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u4 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u3 with a home of pins only.
+
+### Changed
+
+- The home shows the pinned entries and nothing else. Y opens All apps,
+  where A opens, B goes back, X searches and Y pins. Settings and Power
+  are at the end of All apps and pin like an app. A home with no pins
+  says so. In Mouse mode, a right click on a tile offers All apps.
+- The left column of the home is the widget column, in code too
+  (`widgets.rs`).
+
 ## 0.4.2+u3 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u2 plus a home screen.

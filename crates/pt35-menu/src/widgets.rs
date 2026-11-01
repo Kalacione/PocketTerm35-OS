@@ -1,4 +1,4 @@
-//! What the home column of the launcher shows: the machine and the network.
+//! What the widget column of the launcher shows: the machine and the network.
 //! Read on the menu's poll, never before the first frame.
 
 use std::sync::mpsc::Receiver;
