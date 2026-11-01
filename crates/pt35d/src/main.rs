@@ -14,6 +14,7 @@ mod backlight;
 mod events;
 mod hardware;
 mod hooks;
+mod hosts;
 mod modes;
 mod recents;
 mod server;
@@ -36,6 +37,7 @@ fn main() -> Result<()> {
     let subscribers = Arc::new(server::Subscribers::default());
 
     hooks::fire("startup", &[]);
+    hosts::spawn();
 
     {
         let session = Arc::clone(&session);

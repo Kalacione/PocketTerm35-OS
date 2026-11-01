@@ -131,6 +131,14 @@ last three minutes on a log scale from 1 kb/s to 1 Gb/s, in bits. `pt35d`
 keeps that history (`traffic.rs`, `pt35ctl traffic`): the menu is a new
 process per open.
 
+Storage shows the system drive and USB drives from `df`: green, amber past
+75%, red with FULL past 90%. A tap opens Files. Hosts shows up to three hosts
+of `~/.ssh/config`, pinned on the SSH screen (All apps), in
+`~/.local/state/pt35/hosts`. `pt35d` (`hosts.rs`, `pt35ctl hosts`) resolves
+each with `ssh -G` and times a TCP connection to its port every two minutes:
+UP, SLOW past 150 ms, DOWN on a filled tag. A tap opens `foot ssh`. Colour
+always comes with the word. The host list never leaves the device.
+
 The launcher cannot be closed from inside it. The picker's first tile is the
 Launcher: A opens it, Y and X leave it alone. At the launcher's top screen B does
 nothing, and the bar hides its close button while the menu is up. You leave by

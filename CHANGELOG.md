@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.2+u13 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u12 with Storage and Hosts widgets.
+
+### Added
+
+- Storage widget: the system drive and USB drives, a gauge and the space
+  left each. Amber past 75%, red with a FULL tag past 90%. A tap opens
+  Files.
+- Hosts widget: up to three hosts of `~/.ssh/config`, each UP, SLOW (past
+  150 ms) or DOWN on a filled tag, with its address and latency. A tap
+  on a row opens `foot ssh`. `pt35d` checks the SSH port every two
+  minutes, not on each open; `pt35ctl hosts` prints the result.
+- SSH screen (All apps, `pt35ctl menu open ssh`): every host of
+  `~/.ssh/config` and its `Include`s. A connects, Y pins to the widget.
+
+### Fixed
+
+- The menu's widget reads (`traffic`, `hosts`) no longer make `pt35d`
+  send the bar a status it did not need.
+
 ## 0.4.2+u12 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u11 with a pile of widgets on the

@@ -131,7 +131,10 @@ fn handle_client(
         let subscribe = matches!(request, Request::Subscribe);
         // Anything else may have changed what the bar draws. Waiting for the
         // next poll would show the new mode up to two seconds late.
-        let changes = !matches!(request, Request::Subscribe | Request::Status);
+        let changes = !matches!(
+            request,
+            Request::Subscribe | Request::Status | Request::Traffic | Request::Hosts
+        );
         // Everything goes out before the reply, and under the lock. The menu's
         // own "menu off" kills the menu that sent it, so that reply always lands
         // on a closed socket. A subscriber joins under the same lock, so nothing

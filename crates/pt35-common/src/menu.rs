@@ -118,6 +118,8 @@ pub enum Builtin {
     Apps,
     /// Every widget the home's pile can hold. Y pins from here.
     Widgets,
+    /// The hosts of `~/.ssh/config`: A connects, Y pins to the HOSTS widget.
+    Ssh,
     /// Switches and sliders: the things you change without leaving what you
     /// were doing.
     Quick,
@@ -142,6 +144,7 @@ impl Builtin {
             "launcher" => Builtin::Launcher,
             "apps" => Builtin::Apps,
             "widgets" => Builtin::Widgets,
+            "ssh" => Builtin::Ssh,
             "quick" => Builtin::Quick,
             "system" => Builtin::System,
             "windows" => Builtin::Windows,

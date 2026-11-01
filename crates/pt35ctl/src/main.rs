@@ -32,6 +32,7 @@ usage:
   pt35ctl reload
   pt35ctl status [--json]
   pt35ctl traffic
+  pt35ctl hosts
 ";
 
 fn main() {
@@ -68,6 +69,10 @@ fn run() -> Result<()> {
                     println!("{}", serde_json::to_string(&t)?);
                     Ok(())
                 }
+                Response::Hosts { hosts } => {
+                    println!("{}", serde_json::to_string(&hosts)?);
+                    Ok(())
+                }
             }
         }
     }
@@ -85,7 +90,9 @@ fn status(json: bool) -> Result<()> {
             Ok(())
         }
         Response::Error { message } => bail!(message),
-        Response::Ok | Response::Traffic(_) => bail!("daemon returned no status"),
+        Response::Ok | Response::Traffic(_) | Response::Hosts { .. } => {
+            bail!("daemon returned no status")
+        }
     }
 }
 

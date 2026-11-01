@@ -62,6 +62,7 @@ pub fn screen(builtin: Builtin) -> Screen {
         Builtin::Launcher => ("Launcher", Layout::List, None, launcher as fn() -> Items),
         Builtin::Apps => ("All apps", Layout::List, None, apps),
         Builtin::Widgets => ("All widgets", Layout::List, None, widgets),
+        Builtin::Ssh => ("SSH", Layout::List, None, ssh_hosts),
         Builtin::Quick => ("Quick settings", Layout::List, Some("Reading..."), quick),
         Builtin::System => ("System", Layout::List, None, system),
         // One column: the D-pad only goes up and down, and a whole title fits.
@@ -151,6 +152,7 @@ fn apps() -> Items {
     for (label, payload, icon) in [
         ("Settings", "screen:quick", "preferences-system"),
         ("Power", "page:power", "system-shutdown"),
+        ("SSH", "screen:ssh", "network-server"),
     ] {
         out.push(Item {
             label: label.into(),
@@ -174,6 +176,8 @@ fn widgets() -> Items {
             icon: match w {
                 crate::widgets::Widget::Network => "network-wireless",
                 crate::widgets::Widget::Media => "audio-x-generic",
+                crate::widgets::Widget::Storage => "drive-harddisk",
+                crate::widgets::Widget::Hosts => "network-server",
             }
             .into(),
             active: pinned.contains(&w),
@@ -182,10 +186,29 @@ fn widgets() -> Items {
         .collect()
 }
 
+/// The hosts of `~/.ssh/config`. A connects, Y pins to the HOSTS widget.
+fn ssh_hosts() -> Items {
+    let pinned = pt35_common::hosts::pinned();
+    let hosts = pt35_common::hosts::ssh_hosts();
+    if hosts.is_empty() {
+        return placeholder("No Host in ~/.ssh/config");
+    }
+    hosts
+        .into_iter()
+        .map(|name| Item {
+            active: pinned.contains(&name),
+            payload: format!("host:{name}"),
+            label: name,
+            icon: "network-server".into(),
+            ..Item::default()
+        })
+        .collect()
+}
+
 /// Whether a launcher row can be pinned: an app, a screen All apps lists, or
 /// a widget.
 pub fn pinnable(payload: &str) -> bool {
-    ["app:", "exec:", "screen:", "page:", "widget:"]
+    ["app:", "exec:", "screen:", "page:", "widget:", "host:"]
         .iter()
         .any(|kind| payload.starts_with(kind))
 }
@@ -304,6 +327,9 @@ pub fn toggle_pin(payload: &str) -> std::io::Result<bool> {
         .and_then(crate::widgets::Widget::from_id)
     {
         return crate::widgets::toggle_pin(widget);
+    }
+    if let Some(host) = payload.strip_prefix("host:") {
+        return pt35_common::hosts::toggle_pin(host);
     }
     // A file that cannot be read is not an empty one: writing the new pin alone
     // would drop every other.
