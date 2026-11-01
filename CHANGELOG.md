@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u14 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u13 with a daemon that restarts
+on upgrade.
+
+### Fixed
+
+- Upgrading the package restarts `pt35d` and the bar under a running
+  session. The old daemon did not know the new menu's requests, so the
+  Hosts and Network widgets stayed empty until the next login.
+- The SSH screen pins three hosts at most, the number the Hosts widget
+  shows. A fourth pin said pinned and showed nowhere.
+
 ## 0.4.2+u13 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u12 with Storage and Hosts widgets.

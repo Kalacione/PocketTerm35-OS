@@ -130,6 +130,12 @@ if [ -d /run/systemd/system ]; then
   systemctl enable greetd.service >/dev/null 2>&1 || true
 fi
 
+# An upgrade under a running session: the respawn loops in the sway config
+# start the new daemon and bar. The old daemon answers the new menu's
+# requests with "bad request", and its widgets stay empty.
+pkill -x -u "$USER_NAME" pt35d 2>/dev/null || true
+pkill -x -u "$USER_NAME" pt35-bar 2>/dev/null || true
+
 cat <<EOF
 
 pt35-desktop is installed for user '$USER_NAME'.
