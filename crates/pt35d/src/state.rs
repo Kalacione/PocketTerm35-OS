@@ -21,6 +21,7 @@ pub struct Session {
     pub apps: AppTable,
     pub hw: Hardware,
     pub audio: audio::Backend,
+    traffic: crate::traffic::History,
     pub status: Status,
     sway: Option<Sway>,
     menu_proc: Option<Child>,
@@ -106,6 +107,7 @@ impl Session {
             apps: load_or_default("pt35/apps.toml"),
             hw: Hardware::probe(),
             audio: audio::detect(),
+            traffic: crate::traffic::History::default(),
             status: Status {
                 workspace: 1,
                 scale: 1.0,
@@ -499,6 +501,7 @@ impl Session {
         self.status.volume_percent = volume;
         self.status.muted = muted;
         self.status.network = self.hw.network();
+        self.traffic.sample(self.status.network.as_deref());
         self.status.ethernet = self.hw.ethernet();
         self.status.network_signal = self.hw.network_signal();
         // Reap first. Both helpers exit on their own, and whether the menu is
@@ -676,6 +679,7 @@ impl Session {
                 Ok(Response::Status(self.status.clone()))
             }
             Request::Subscribe => Ok(Response::Status(self.status.clone())),
+            Request::Traffic => Ok(Response::Traffic(self.traffic.snapshot())),
 
             Request::Menu { action, page } => {
                 self.toggle_menu(action, page)?;

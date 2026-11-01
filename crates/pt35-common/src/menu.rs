@@ -116,6 +116,8 @@ pub enum Builtin {
     /// Every app as a list, when the launcher is a home of pinned apps
     /// (`[menu] launcher_home`). Y pins from here.
     Apps,
+    /// Every widget the home's pile can hold. Y pins from here.
+    Widgets,
     /// Switches and sliders: the things you change without leaving what you
     /// were doing.
     Quick,
@@ -139,6 +141,7 @@ impl Builtin {
         Some(match name {
             "launcher" => Builtin::Launcher,
             "apps" => Builtin::Apps,
+            "widgets" => Builtin::Widgets,
             "quick" => Builtin::Quick,
             "system" => Builtin::System,
             "windows" => Builtin::Windows,

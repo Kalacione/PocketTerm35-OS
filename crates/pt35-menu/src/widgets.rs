@@ -1,9 +1,8 @@
-//! What the widget column of the launcher shows: the machine, the network,
-//! and the media player when one is playing.
+//! What the widget column of the launcher shows: the machine on top, then a
+//! pile of pinned widgets, one at a time: the network and the media player.
 //! Read on the menu's poll, never before the first frame.
 
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
 
 #[derive(Default)]
 pub struct Readings {
@@ -12,11 +11,10 @@ pub struct Readings {
     pub temperature: Option<f32>,
     pub address: Option<String>,
     pub ssid: Option<String>,
-    /// Bytes a second, down and up, on the interface carrying traffic.
-    pub rates: Option<(f64, f64)>,
+    /// The last minutes of throughput, from pt35d.
+    pub traffic: Option<pt35_common::ipc::Traffic>,
     sampled: bool,
     cpu_last: Option<(u64, u64)>,
-    net_last: Option<(String, u64, u64, Instant)>,
     /// The address and the network name cost a process each: read once, off
     /// the Wayland thread.
     slow: Option<Receiver<(Option<String>, Option<String>)>>,
@@ -44,8 +42,8 @@ impl Readings {
         self.sampled
     }
 
-    /// Read everything again. `iface` is the one pt35d says carries traffic.
-    pub fn sample(&mut self, iface: Option<&str>) {
+    /// Read everything again.
+    pub fn sample(&mut self) {
         if !self.sampled {
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
@@ -84,39 +82,24 @@ impl Readings {
         self.memory = crate::providers::memory()
             .map(|(used, total)| (used * 100 / total.max(1)).min(100) as u8);
         self.temperature = crate::providers::temperature();
-        self.rates = None;
-        let Some(iface) = iface else {
-            self.net_last = None;
-            return;
+        self.traffic = match crate::live::request(&pt35_common::ipc::Request::Traffic) {
+            Ok(pt35_common::ipc::Response::Traffic(traffic)) => Some(traffic),
+            _ => None,
         };
-        let Some((down, up)) = net_bytes(iface) else {
-            return;
-        };
-        let at = Instant::now();
-        if let Some((last_iface, last_down, last_up, last_at)) = &self.net_last {
-            let seconds = at.duration_since(*last_at).as_secs_f64();
-            if last_iface == iface && seconds > 0.0 {
-                self.rates = Some((
-                    down.saturating_sub(*last_down) as f64 / seconds,
-                    up.saturating_sub(*last_up) as f64 / seconds,
-                ));
-            }
-        }
-        self.net_last = Some((iface.to_string(), down, up, at));
     }
 }
 
 impl Readings {
-    /// Play or pause, and show it at once rather than on the next read.
-    pub fn play_pause(&mut self) {
+    /// `play-pause`, `previous` or `next`. A pause shows at once rather than
+    /// on the next read.
+    pub fn control(&mut self, command: &str) {
         let Some(media) = self.media.as_mut() else {
             return;
         };
-        media.playing = !media.playing;
-        if let Ok(mut child) = std::process::Command::new("playerctl")
-            .arg("play-pause")
-            .spawn()
-        {
+        if command == "play-pause" {
+            media.playing = !media.playing;
+        }
+        if let Ok(mut child) = std::process::Command::new("playerctl").arg(command).spawn() {
             std::thread::spawn(move || child.wait());
         }
     }
@@ -185,14 +168,6 @@ pub fn cpu_percent(last: (u64, u64), now: (u64, u64)) -> Option<u8> {
     Some(((total - idle) * 100 / total) as u8)
 }
 
-fn net_bytes(iface: &str) -> Option<(u64, u64)> {
-    let read = |name: &str| -> Option<u64> {
-        let path = format!("/sys/class/net/{iface}/statistics/{name}");
-        std::fs::read_to_string(path).ok()?.trim().parse().ok()
-    };
-    Some((read("rx_bytes")?, read("tx_bytes")?))
-}
-
 /// The Wi-Fi connection's name, from NetworkManager's active list: no scan.
 fn ssid() -> Option<String> {
     let out = crate::providers::run(
@@ -204,13 +179,104 @@ fn ssid() -> Option<String> {
         .map(|name| name.replace("\\:", ":"))
 }
 
-/// `2.4 MB/s`, `320 kB/s`, `0 kB/s`.
-pub fn rate(bytes_per_second: f64) -> String {
-    if bytes_per_second >= 1_000_000.0 {
-        format!("{:.1} MB/s", bytes_per_second / 1_000_000.0)
-    } else {
-        format!("{:.0} kB/s", bytes_per_second / 1000.0)
+/// In bits, as links and plans are sold: `2.4 Mb/s`, `320 kb/s`, `0 kb/s`.
+pub fn rate(bits_per_second: f32) -> String {
+    match bits_per_second {
+        b if b >= 1e9 => format!("{:.1} Gb/s", b / 1e9),
+        b if b >= 1e6 => format!("{:.1} Mb/s", b / 1e6),
+        b => format!("{:.0} kb/s", b / 1e3),
     }
+}
+
+/// Where a rate sits on the graph, 0 to 1: a log scale from 1 kb/s to 1 Gb/s,
+/// so a quiet link and a download read on the same graph. Its lines are the
+/// units: k at the floor, M halfway, G at the top.
+pub fn log_level(bits_per_second: f32) -> f32 {
+    ((bits_per_second.max(1e3).log10() - 3.0) / 6.0).clamp(0.0, 1.0)
+}
+
+/// What the pile at the bottom of the widget column can hold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Widget {
+    Network,
+    Media,
+}
+
+impl Widget {
+    pub const ALL: [Widget; 2] = [Widget::Network, Widget::Media];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Widget::Network => "network",
+            Widget::Media => "media",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Widget::Network => "Network",
+            Widget::Media => "Media",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Widget> {
+        Widget::ALL.into_iter().find(|w| w.id() == id)
+    }
+}
+
+/// The pinned widgets, in order. Never set is all of them.
+pub fn pinned() -> Vec<Widget> {
+    match std::fs::read_to_string(pt35_common::paths::widgets_path()) {
+        Ok(text) => parse_widgets(&text),
+        Err(_) => Widget::ALL.to_vec(),
+    }
+}
+
+fn parse_widgets(text: &str) -> Vec<Widget> {
+    let mut out = Vec::new();
+    for w in text.lines().filter_map(|l| Widget::from_id(l.trim())) {
+        if !out.contains(&w) {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// Pin a widget, or unpin it. Returns whether it is pinned now.
+pub fn toggle_pin(widget: Widget) -> std::io::Result<bool> {
+    let mut list = pinned();
+    let pinned = match list.iter().position(|w| *w == widget) {
+        Some(at) => {
+            list.remove(at);
+            false
+        }
+        None => {
+            list.push(widget);
+            true
+        }
+    };
+    let text: String = list.iter().map(|w| format!("{}\n", w.id())).collect();
+    pt35_common::write_atomic(&pt35_common::paths::widgets_path(), text.as_bytes())?;
+    Ok(pinned)
+}
+
+/// The pinned widgets and where the pile stands in them: on the one the
+/// home showed last, so the next open shows it again.
+pub fn pile() -> (Vec<Widget>, usize) {
+    let list = pinned();
+    let at = std::fs::read_to_string(pt35_common::paths::widget_path())
+        .ok()
+        .and_then(|text| Widget::from_id(text.trim()))
+        .and_then(|shown| list.iter().position(|w| *w == shown))
+        .unwrap_or(0);
+    (list, at)
+}
+
+pub fn set_shown(widget: Widget) {
+    let _ = pt35_common::write_atomic(
+        &pt35_common::paths::widget_path(),
+        format!("{}\n", widget.id()).as_bytes(),
+    );
 }
 
 #[cfg(test)]
@@ -251,8 +317,27 @@ mod tests {
 
     #[test]
     fn rates_read_at_a_glance() {
-        assert_eq!(rate(2_400_000.0), "2.4 MB/s");
-        assert_eq!(rate(320_000.0), "320 kB/s");
-        assert_eq!(rate(0.0), "0 kB/s");
+        assert_eq!(rate(2_400_000.0), "2.4 Mb/s");
+        assert_eq!(rate(320_000.0), "320 kb/s");
+        assert_eq!(rate(0.0), "0 kb/s");
+        assert_eq!(rate(1.2e9), "1.2 Gb/s");
+    }
+
+    #[test]
+    fn the_graph_is_a_log_from_k_to_g() {
+        assert_eq!(log_level(0.0), 0.0);
+        assert_eq!(log_level(1e3), 0.0);
+        assert!((log_level(1e6) - 0.5).abs() < 1e-6);
+        assert_eq!(log_level(1e9), 1.0);
+        assert_eq!(log_level(1e11), 1.0);
+    }
+
+    #[test]
+    fn widget_pins_keep_their_order_and_skip_unknowns() {
+        assert_eq!(
+            parse_widgets("media\nclock\nnetwork\nmedia\n"),
+            vec![Widget::Media, Widget::Network]
+        );
+        assert_eq!(parse_widgets(""), vec![]);
     }
 }

@@ -18,6 +18,7 @@ mod modes;
 mod recents;
 mod server;
 mod state;
+mod traffic;
 mod vkbd;
 
 /// How often the sampled hardware is re-read. 2 s is invisible on a clock that

@@ -81,6 +81,16 @@ pub fn pins_path() -> PathBuf {
     state_dir().join("pinned")
 }
 
+/// The home's pinned widgets, in order. No file is the default pair.
+pub fn widgets_path() -> PathBuf {
+    state_dir().join("widgets")
+}
+
+/// The widget the home showed last.
+pub fn widget_path() -> PathBuf {
+    state_dir().join("widget")
+}
+
 /// The apps you have opened, most recent first.
 pub fn recents_path() -> PathBuf {
     state_dir().join("recent")
