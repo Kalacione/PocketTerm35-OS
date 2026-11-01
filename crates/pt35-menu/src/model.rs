@@ -239,6 +239,7 @@ impl Model {
                 "brightness" => Some(Adjust::Brightness),
                 "scale" => Some(Adjust::Scale),
                 "tile_opacity" => Some(Adjust::TileOpacity),
+                "rain_speed" => Some(Adjust::RainSpeed),
                 _ => None,
             };
         }

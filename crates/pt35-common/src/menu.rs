@@ -81,6 +81,8 @@ pub enum Adjust {
     Scale,
     /// `[menu] tile_opacity`: a theme pick, written by the menu itself.
     TileOpacity,
+    /// `[effects] rain_speed`: the same.
+    RainSpeed,
 }
 
 impl Adjust {
@@ -91,7 +93,7 @@ impl Adjust {
             Adjust::Volume => vec![arg("volume"), arg(if up { "+5" } else { "-5" })],
             Adjust::Brightness => vec![arg("brightness"), arg(if up { "+10" } else { "-10" })],
             Adjust::Scale => vec![arg("scale"), arg("cycle")],
-            Adjust::TileOpacity => Vec::new(),
+            Adjust::TileOpacity | Adjust::RainSpeed => Vec::new(),
         }
     }
 }

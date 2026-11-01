@@ -203,8 +203,8 @@ window appears in front.
 - Motion is two things, each about 0.1s: the selection glides, a new screen
   settles. The draw loop runs at 60fps only while one is moving and sleeps
   otherwise (`App::animating`). `[menu] animations = false` turns both off.
-  The home's rain (`[effects] rain`) is a step per menu tick, 4 a second,
-  never a 60fps loop.
+  The home's rain (`[effects] rain`) moves `rain_speed` rows a second, 4 at
+  most, on the menu's tick: never a 60fps loop.
 - Performance comes first. The menu is a new process per open, so nothing slow
   may run before its first frame: measure it (about 75ms on a Pi 5). An icon
   miss once walked every theme folder and cost 3.5s.

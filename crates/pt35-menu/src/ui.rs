@@ -287,6 +287,8 @@ pub struct Menu {
     pan: f64,
     /// Drawn under the launcher. `None` keeps the theme's background.
     wallpaper: Option<pt35_ui::wallpaper::Wallpaper>,
+    /// The rain step on screen.
+    rain_drawn: u64,
     /// `[font] family_display`, for the clock. None draws it in mono.
     display: Option<Font>,
 }
@@ -457,6 +459,7 @@ impl Menu {
             scrolling: false,
             pan: 0.0,
             wallpaper: None,
+            rain_drawn: 0,
             display: None,
         }
     }
@@ -638,7 +641,17 @@ impl Menu {
 
     /// The launcher is a home of pinned apps with the widget column.
     fn raining(&self) -> bool {
-        self.theme.effects.rain > 0 && self.home()
+        self.theme.effects.rain > 0 && self.theme.effects.rain_speed > 0 && self.home()
+    }
+
+    fn rain_step(&self) -> u64 {
+        let speed = self.theme.effects.rain_speed.min(providers::RAIN_SPEED_MAX) as u64;
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+            * speed
+            / 1000
     }
 
     fn home(&self) -> bool {
@@ -871,21 +884,46 @@ impl Menu {
                 true
             }
             Step::Adjust(adjust, up) => {
-                if adjust == pt35_common::menu::Adjust::TileOpacity {
+                use pt35_common::menu::Adjust;
+                if matches!(adjust, Adjust::TileOpacity | Adjust::RainSpeed) {
                     // A theme pick, so Appearance's file, not the daemon.
-                    let now = self.theme.menu.tile_opacity.min(100) as i64;
-                    let next = if up { now + 5 } else { now - 5 }
-                        .clamp(providers::TILE_OPACITY_MIN as i64, 100);
-                    let entry = [("tile_opacity", toml::Value::Integer(next))];
-                    match pt35_common::set_appearance("menu", &entry, false) {
+                    let (section, key, now, step, low, high) = match adjust {
+                        Adjust::TileOpacity => (
+                            "menu",
+                            "tile_opacity",
+                            self.theme.menu.tile_opacity.min(100),
+                            5,
+                            providers::TILE_OPACITY_MIN,
+                            100,
+                        ),
+                        _ => (
+                            "effects",
+                            "rain_speed",
+                            self.theme.effects.rain_speed,
+                            1,
+                            0,
+                            providers::RAIN_SPEED_MAX,
+                        ),
+                    };
+                    let now = now as i64;
+                    let next =
+                        if up { now + step } else { now - step }.clamp(low as i64, high as i64);
+                    let entry = [(key, toml::Value::Integer(next))];
+                    match pt35_common::set_appearance(section, &entry, false) {
                         Ok(()) => self.theme = pt35_common::load_theme(),
                         Err(e) => self.error = Some(e.to_string()),
                     }
                     if let Some(items) = self.model.dynamic_items() {
                         let mut items = items.to_vec();
                         for item in items.iter_mut() {
-                            if item.payload == "adjust:tile_opacity" {
-                                *item = providers::opacity_row(self.theme.menu.tile_opacity);
+                            match item.payload.as_str() {
+                                "adjust:tile_opacity" => {
+                                    *item = providers::opacity_row(self.theme.menu.tile_opacity)
+                                }
+                                "adjust:rain_speed" => {
+                                    *item = providers::rain_row(self.theme.effects.rain_speed)
+                                }
+                                _ => {}
                             }
                         }
                         self.model.replace_dynamic(items);
@@ -3386,8 +3424,8 @@ impl App for Menu {
                 drawn = true;
             }
         }
-        // One rain step a tick.
-        drawn |= self.raining();
+        // A frame only when the rain has moved: slower is cheaper.
+        drawn |= self.raining() && self.rain_step() != self.rain_drawn;
         self.since_poll += 1;
         // The widget column fills in on the first tick, not before the first
         // frame, then moves with the poll.
@@ -3838,10 +3876,11 @@ impl App for Menu {
             }
         }
         if self.raining() {
+            self.rain_drawn = self.rain_step();
             pt35_ui::rain::draw(
                 canvas,
                 &mut self.mono,
-                rain_step(),
+                self.rain_drawn,
                 self.theme.effects.rain,
                 self.theme.color.foreground,
                 self.theme.color.background,
@@ -3925,14 +3964,6 @@ impl App for Menu {
         self.draw_hints(canvas, hint_top);
         self.draw_popup(canvas);
     }
-}
-
-fn rain_step() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-        / TICK.as_millis() as u64
 }
 
 pub fn run(page: Option<String>) -> Result<()> {

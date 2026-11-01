@@ -39,6 +39,9 @@ pub struct Effects {
     /// Slow falling glyphs behind the home, the head this bright in percent.
     /// 0 is off.
     pub rain: u8,
+    /// Rows the rain falls a second, 0 to 4. 0 holds it still and hides it.
+    /// The Quick settings slider writes it.
+    pub rain_speed: u8,
 }
 
 impl Default for Effects {
@@ -51,6 +54,7 @@ impl Default for Effects {
             sweep_jitter: 0,
             sweep_strength: 8,
             rain: 0,
+            rain_speed: 2,
         }
     }
 }

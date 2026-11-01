@@ -6,10 +6,14 @@ PocketTerm 3.5 Unleashed build: 0.4.2+u19 with rain behind the home.
 
 ### Added
 
-- `[effects] rain`: hex glyphs fall slowly behind the home, one row a
-  tick (4 a second), the head this many percent bright. Most columns are
-  dark at any moment. Off by default. The menu draws it, so it stops with
-  the menu and never runs over an app.
+- `[effects] rain`: hex glyphs fall slowly behind the home, the head this
+  many percent bright. Most columns are dark at any moment. Off by
+  default. The menu draws it, so it stops with the menu and never runs
+  over an app.
+- `[effects] rain_speed`: rows a second, 0 to 4, 2 by default. A Rain
+  slider in Quick settings, next to Tiles, sets it in `appearance.toml`;
+  0 stops it. The row shows only where `rain` is on. A frame is drawn only
+  when the rain moves, so slower costs less.
 
 ## 0.4.2+u19 (2026-11-01)
 

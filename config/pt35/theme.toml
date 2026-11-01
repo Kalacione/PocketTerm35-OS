@@ -89,6 +89,7 @@ sweep         = 0        # a band of light rolls down every N seconds; 0 off
 sweep_jitter  = 0        # up to N seconds more between two, at random
 sweep_strength = 8       # % at the band's middle
 rain          = 0        # glyphs falling behind the home, % bright; 0 off
+rain_speed    = 2        # rows a second, 0-4; Quick settings has the slider
 
 # GTK and Qt apps. dark | light | keep (leave the desktop settings alone).
 # Applied through gsettings at login and on reload; Qt follows GTK.
