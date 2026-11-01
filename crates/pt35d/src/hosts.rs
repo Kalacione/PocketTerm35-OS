@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 
 /// Gentle on the network: one connection per host every two minutes.
 const EVERY: Duration = Duration::from_secs(120);
+/// At boot the network comes up after pt35d. Until a host answers, the wait
+/// doubles from here up to EVERY. An outage later keeps EVERY.
+const RETRY: Duration = Duration::from_secs(10);
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 static CHECKED: Mutex<Vec<HostStatus>> = Mutex::new(Vec::new());
@@ -36,14 +39,16 @@ pub fn spawn() {
     let _ = std::thread::Builder::new().name("hosts".into()).spawn(|| {
         let mut last: Option<Instant> = None;
         let mut names: Vec<String> = Vec::new();
+        let mut wait = Duration::ZERO;
         loop {
             let pins: Vec<String> = pt35_common::hosts::pinned()
                 .into_iter()
                 .take(pt35_common::hosts::SHOWN)
                 .collect();
             // A new pin is checked at once, the rest on the clock.
-            if pins != names || last.is_none_or(|at| at.elapsed() >= EVERY) {
+            if pins != names || last.is_none_or(|at| at.elapsed() >= wait) {
                 let results: Vec<HostStatus> = pins.iter().map(|n| check(n)).collect();
+                wait = next_wait(wait, &results);
                 if let Ok(mut checked) = CHECKED.lock() {
                     *checked = results;
                 }
@@ -78,6 +83,14 @@ fn check(name: &str) -> HostStatus {
     }
 }
 
+fn next_wait(wait: Duration, results: &[HostStatus]) -> Duration {
+    if results.iter().any(|h| h.up == Some(true)) {
+        EVERY
+    } else {
+        (wait * 2).clamp(RETRY, EVERY)
+    }
+}
+
 fn parse_g(out: &str) -> (Option<String>, Option<u16>) {
     let value = |key: &str| {
         out.lines()
@@ -99,5 +112,17 @@ mod tests {
         let out = "user dje\nhostname 10.0.0.2\nport 2222\nhostkeyalias x\n";
         assert_eq!(parse_g(out), (Some("10.0.0.2".into()), Some(2222)));
         assert_eq!(parse_g(""), (None, None));
+    }
+
+    #[test]
+    fn retries_sooner_while_all_down() {
+        let host = |up| HostStatus {
+            up: Some(up),
+            ..HostStatus::default()
+        };
+        assert_eq!(next_wait(Duration::ZERO, &[host(false)]), RETRY);
+        assert_eq!(next_wait(RETRY, &[host(false)]), RETRY * 2);
+        assert_eq!(next_wait(EVERY, &[host(false)]), EVERY);
+        assert_eq!(next_wait(RETRY, &[host(false), host(true)]), EVERY);
     }
 }
