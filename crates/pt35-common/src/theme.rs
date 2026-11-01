@@ -110,6 +110,16 @@ pub struct Colors {
     pub critical: Rgb,
     pub ok: Rgb,
     pub border: Rgb,
+    /// Face of the home's tiles and panels, under `[menu] tile_opacity`.
+    /// Unset is `background_alt`. Apart from it so the wallpaper can show
+    /// through without lightening every list.
+    pub tile: Option<Rgb>,
+}
+
+impl Colors {
+    pub fn tile(&self) -> Rgb {
+        self.tile.unwrap_or(self.background_alt)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -376,6 +386,7 @@ impl Default for Colors {
             critical: Rgb(0xef, 0x6b, 0x73),
             ok: Rgb(0x3d, 0xdc, 0x97),
             border: Rgb(0x25, 0x42, 0x36),
+            tile: None,
         }
     }
 }
@@ -486,5 +497,13 @@ mod tests {
         assert_eq!(theme.color.accent, Rgb(0xff, 0, 0));
         assert_eq!(theme.color.background, Colors::default().background);
         assert_eq!(theme.bar.height, Bar::default().height);
+    }
+
+    #[test]
+    fn tile_falls_back_to_background_alt() {
+        let theme: Theme = toml::from_str("[color]\nbackground_alt = \"#101010\"\n").unwrap();
+        assert_eq!(theme.color.tile(), Rgb(0x10, 0x10, 0x10));
+        let theme: Theme = toml::from_str("[color]\ntile = \"#1a2620\"\n").unwrap();
+        assert_eq!(theme.color.tile(), Rgb(0x1a, 0x26, 0x20));
     }
 }
