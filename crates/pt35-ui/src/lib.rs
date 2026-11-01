@@ -6,7 +6,7 @@
 //! rest of the session put together.
 //!
 //! The modules split cleanly in two:
-//!   * portable — `canvas`, `font`, `list`, `keys`, `pixel`, `wallpaper`: pure logic and pixels,
+//!   * portable — `canvas`, `font`, `list`, `keys`, `pixel`, `touch`, `wallpaper`: pure logic and pixels,
 //!     unit-tested on any host;
 //!   * Linux-only — `layer`: the Wayland layer-shell surface that puts those
 //!     pixels on screen.
@@ -17,6 +17,7 @@ pub mod icon;
 pub mod keys;
 pub mod list;
 pub mod pixel;
+pub mod touch;
 pub mod wallpaper;
 
 #[cfg(target_os = "linux")]

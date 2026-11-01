@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.2+u18 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u17 with a finger that scrolls.
+
+### Changed
+
+- A finger acts when it lifts, not when it lands, in the menu and the
+  bar. A drag past 12 px scrolls the list a line at a time and never opens
+  what it started on. On the window switcher a swipe moves to the next or
+  previous card. A tap on the scrollbar still jumps there, a drag on it
+  still moves the list.
+
+### Added
+
+- Holding a finger for half a second opens the row's menu, like a right
+  click: Open and Pin on an app, Switch to and Close on a window.
+- A second finger does nothing. It used to be a second tap.
+
 ## 0.4.2+u17 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u16 with a shorter home legend.

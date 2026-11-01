@@ -49,7 +49,7 @@ menu you drive with the D-pad. A mouse works too, built in or plugged in.
 - **Window switcher.** Cards with a live picture of each window.
 - **Two input modes.** Buttons mode drives menus and apps with the D-pad.
   Mouse mode turns the D-pad into a cursor. R switches.
-- **Mouse and touch.** Hover, click, right click, wheel, and breadcrumbs to go back.
+- **Mouse and touch.** Hover, click, right click, wheel, and breadcrumbs to go back. A finger taps, drags to scroll and holds for the row's menu.
 - **Quick settings.** Wi-Fi, Bluetooth, volume, brightness*, input mode, touch.
 - **Network.** Wi-Fi list and Ethernet.
 - **CPU profiles.** Powersave, balanced and performance.

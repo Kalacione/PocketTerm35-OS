@@ -62,7 +62,17 @@ The menu works like any desktop, in either mode, with a plugged-in mouse too.
 | scrollbar | click to jump, drag to move |
 | header | `PT35 < SETTINGS < SYSTEM`: click a name to go back to it |
 
-Touch works the same way: tap a row, a tile or a legend pill.
+### With a finger
+
+| finger | what it does |
+|---|---|
+| tap | opens the row, tile or legend pill, when the finger lifts |
+| drag | scrolls the list a line at a time; never opens what it started on |
+| swipe on the window switcher | the next or previous card |
+| hold | the row's menu, like a right click |
+| scrollbar | tap to jump, drag to move |
+
+A second finger does nothing.
 
 ## The taskbar
 
