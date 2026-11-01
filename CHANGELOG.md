@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2+u11 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u10 without Find on the home's
+legend.
+
+### Changed
+
+- The home's legend no longer shows X Find. Search belongs to All apps
+  (Y), and X on the home still opens it searching.
+
 ## 0.4.2+u10 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u9 with a colour of its own for

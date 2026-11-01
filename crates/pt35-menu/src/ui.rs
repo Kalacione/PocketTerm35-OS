@@ -2558,8 +2558,10 @@ impl Menu {
         let mut hints = hints;
         // Y on a launcher row pins it: the one thing Y is free for at the top.
         // In Mouse mode Y is the wheel: a right click pins, from its menu.
+        // X still searches every app from the home, but the legend leaves it
+        // to All apps: four chips crowd the strip for a shortcut.
         if self.home() && !mouse {
-            hints.retain(|hint| hint.button != "Y");
+            hints.retain(|hint| hint.button != "Y" && hint.button != "X");
             hints.push(Hint {
                 button: "Y",
                 action: "All apps",
