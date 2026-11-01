@@ -1762,24 +1762,30 @@ impl Menu {
         };
         let tw = clock.measure(&time, big) as i32;
         let baseline = top + 26 + (big * 0.72) as i32;
+        let glow = theme.effects.glow;
         clock.draw_glow(
             canvas,
             &time,
             x + (w - tw) / 2,
             baseline,
             big,
-            theme.color.foreground,
-            theme.effects.glow,
+            theme.color.clock.unwrap_or(theme.color.foreground),
+            glow,
         );
         let date = now.format("%a %d %b %Y").to_string().to_uppercase();
         let dw = self.mono.measure(&date, small) as i32;
-        self.mono.draw(
+        let (date_color, date_glow) = match theme.color.clock {
+            Some(c) => (c, glow),
+            None => (theme.color.muted, 0),
+        };
+        self.mono.draw_glow(
             canvas,
             &date,
             x + (w - dw) / 2,
             baseline + 24,
             small,
-            theme.color.muted,
+            date_color,
+            date_glow,
         );
 
         let r = &self.readings;

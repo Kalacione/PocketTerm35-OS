@@ -122,6 +122,9 @@ pub struct Colors {
     /// Unset is `background_alt`. Apart from it so the wallpaper can show
     /// through without lightening every list.
     pub tile: Option<Rgb>,
+    /// The home's clock and date, both with the glow. Unset is the clock in
+    /// `foreground` and the date in `muted`, without glow.
+    pub clock: Option<Rgb>,
 }
 
 impl Colors {
@@ -398,6 +401,7 @@ impl Default for Colors {
             ok: Rgb(0x3d, 0xdc, 0x97),
             border: Rgb(0x25, 0x42, 0x36),
             tile: None,
+            clock: None,
         }
     }
 }
