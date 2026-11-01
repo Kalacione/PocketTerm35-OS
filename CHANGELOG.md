@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.2+u19 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u18 with a slimmer header.
+
+### Added
+
+- `[menu] title_header`: the header reads like a prompt. The way back is
+  small and dim, `PT35 ❯ SETTINGS ❯`, then the screen in front in the
+  display face with its glow. A path too long loses the screens under
+  PT35 first, shown as `…`. Built for `header_height = 32`, which leaves
+  room for a seventh row. Off by default.
+
+### Changed
+
+- A tap in the 8 px under the header counts as a tap on the trail, so a
+  32 px header is still a 40 px target.
+
 ## 0.4.2+u18 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u17 with a finger that scrolls.
