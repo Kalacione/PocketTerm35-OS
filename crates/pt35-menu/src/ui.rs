@@ -536,7 +536,7 @@ impl Menu {
     fn row_options(&self) -> Vec<(&'static str, &'static str)> {
         // In Mouse mode Y is the wheel: All apps is reached from here.
         if self.home() {
-            return vec![("Open", "A"), ("All apps", "Y")];
+            return vec![("Open", "A"), ("Apps", "Y")];
         }
         if let Some(payload) = self.pin_target() {
             let pinned = crate::providers::pins().contains(&payload);
@@ -3065,16 +3065,16 @@ impl Menu {
             hints.retain(|hint| hint.button != "Y" && hint.button != "X");
             hints.push(Hint {
                 button: "X",
-                action: "All widgets",
+                action: "Widgets",
             });
             hints.push(Hint {
                 button: "Y",
-                action: "All apps",
+                action: "Apps",
             });
             if self.widgets.len() > 1 {
                 hints.push(Hint {
                     button: "L R",
-                    action: "Widget",
+                    action: "Flip",
                 });
             }
             if self.model.selected_payload().is_some() {
