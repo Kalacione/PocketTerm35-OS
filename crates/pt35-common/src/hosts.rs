@@ -111,6 +111,12 @@ pub fn toggle_pin(name: &str) -> std::io::Result<bool> {
             list.remove(at);
             false
         }
+        // A fourth pin would be on the SSH screen and nowhere on the widget.
+        None if list.len() >= SHOWN => {
+            return Err(std::io::Error::other(format!(
+                "the widget shows {SHOWN}: unpin one first"
+            )))
+        }
         None => {
             list.push(name.to_string());
             true
