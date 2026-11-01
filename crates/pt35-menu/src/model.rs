@@ -109,6 +109,8 @@ pub struct Model {
     columns: usize,
     /// Rows and columns of the launcher when it is a grid.
     launcher: Option<(usize, usize)>,
+    /// Quick settings in full list rows, so it scrolls like any list.
+    quick_scrolls: bool,
     /// Depth of the screen the menu was opened on, when that was not the root:
     /// the picker from R, Power from the power key. Back there means "put me
     /// back where I was", not "show me what is underneath".
@@ -132,6 +134,7 @@ impl Model {
             grid_rows: grid_rows.max(1),
             columns: columns.max(1),
             launcher: None,
+            quick_scrolls: false,
             entry: 1,
         };
         let root = page
@@ -302,6 +305,11 @@ impl Model {
         self.launcher = (columns > 1).then_some((rows.max(1), columns));
     }
 
+    /// Give Quick settings list rows, which scroll, instead of one screenful.
+    pub fn quick_scrolls(&mut self, on: bool) {
+        self.quick_scrolls = on;
+    }
+
     /// Open a page from menu.toml by id, on top of what is there.
     pub fn open_page(&mut self, id: &str) {
         self.push_page(id);
@@ -371,7 +379,10 @@ impl Model {
             }
             // The quick panel is one screenful by design: it never scrolls.
             // The switcher strip draws every card and scrolls itself.
-            Layout::List if matches!(builtin, Builtin::Quick | Builtin::Windows) => {
+            Layout::List
+                if builtin == Builtin::Windows
+                    || (builtin == Builtin::Quick && !self.quick_scrolls) =>
+            {
                 let rows = labels.len().max(1);
                 ListState::new(labels, rows).with_keywords(keywords)
             }

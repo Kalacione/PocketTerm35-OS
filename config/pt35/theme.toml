@@ -77,6 +77,7 @@ launcher_columns = 1     # 2 or more: the launcher is a grid of big icons
 launcher_home = false    # with a grid: pinned apps, clock and state widgets
 tile_opacity  = 100      # %; below 100 the wallpaper shows through the home
 hint_frames   = false    # legend as square keys with framed actions
+row_frames    = false    # framed list icons; Quick settings as a full list
 
 [effects]
 scanlines     = 0        # CRT lines, % darker; pt35-bar --scanlines covers apps
