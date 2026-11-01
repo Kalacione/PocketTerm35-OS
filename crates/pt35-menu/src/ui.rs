@@ -57,6 +57,11 @@ const SCROLLBAR_SLOP: i32 = 12;
 const WIDGET_WIDTH: i32 = 216;
 /// Height a launcher tile adds under its icon: the name and the margins.
 const LAUNCHER_LABEL: u32 = 32;
+
+/// A percent from the theme as an alpha.
+fn opacity(percent: u8) -> u8 {
+    (percent.min(100) as u32 * 255 / 100) as u8
+}
 /// How many of those ticks go by between reads of the daemon.
 const POLL_TICKS: u8 = 4;
 
@@ -1548,14 +1553,17 @@ impl Menu {
     /// A panel of the widget column: a flat surface with its name on a tab.
     fn draw_panel(&mut self, canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, title: &str) {
         let theme = self.theme.clone();
-        canvas.rect(x, y, w as u32, h.max(0) as u32, theme.color.border);
-        canvas.rect(
+        let (fw, fh) = (w as u32, h.max(2) as u32);
+        let alpha = opacity(theme.menu.tile_opacity);
+        canvas.rect_alpha(
             x + 1,
             y + 1,
-            (w - 2) as u32,
-            (h - 2).max(0) as u32,
+            fw - 2,
+            fh - 2,
             theme.color.background_alt,
+            alpha,
         );
+        canvas.frame(x, y, fw, fh, theme.color.border);
         let size = theme.font.size_hint * 0.8;
         let tw = self
             .mono_bold
@@ -1625,23 +1633,30 @@ impl Menu {
             } else {
                 (theme.color.background_alt, theme.color.foreground)
             };
-            let radius = theme.menu.radius;
-            canvas.rounded_rect(
-                x,
-                y,
-                tile_w as u32,
-                tile_h as u32,
-                radius,
-                theme.color.border,
-            );
-            canvas.rounded_rect(
-                x + 1,
-                y + 1,
-                (tile_w - 2) as u32,
-                (tile_h - 2) as u32,
-                radius,
-                face,
-            );
+            let alpha = opacity(theme.menu.tile_opacity);
+            if focused || alpha == 255 {
+                let radius = theme.menu.radius;
+                canvas.rounded_rect(
+                    x,
+                    y,
+                    tile_w as u32,
+                    tile_h as u32,
+                    radius,
+                    theme.color.border,
+                );
+                canvas.rounded_rect(
+                    x + 1,
+                    y + 1,
+                    (tile_w - 2) as u32,
+                    (tile_h - 2) as u32,
+                    radius,
+                    face,
+                );
+            } else {
+                let (w, h) = (tile_w as u32, tile_h as u32);
+                canvas.rect_alpha(x + 1, y + 1, w - 2, h - 2, face, alpha);
+                canvas.frame(x, y, w, h, theme.color.border);
+            }
 
             let ix = x + (tile_w - icon_size as i32) / 2;
             let iy = y + (tile_h - icon_size as i32 - LAUNCHER_LABEL as i32) / 2 + 4;
@@ -2331,7 +2346,14 @@ impl Menu {
     fn draw_hints(&mut self, canvas: &mut Canvas, top: i32) {
         let theme = &self.theme;
         let height = theme.menu.hint_height;
-        canvas.rect(0, top, canvas.width, height, theme.color.background_alt);
+        let framed = theme.menu.hint_frames;
+        // Framed hints are surfaces of their own, so the strip goes dark.
+        let strip = if framed {
+            theme.color.background
+        } else {
+            theme.color.background_alt
+        };
+        canvas.rect(0, top, canvas.width, height, strip);
         canvas.rect(0, top, canvas.width, 1, theme.color.border);
 
         let filtering = self.model.screen().list.mode() == Mode::Filter;
@@ -2426,11 +2448,22 @@ impl Menu {
         // Each chip takes the width it needs and the slack is shared out
         // between them: even slots cut the last word off when the legend is
         // long, and "Clos..." is worse than a tighter gap.
+        // A framed hint: a square key, then its action inside the frame.
+        let key_h = 26;
+        let key_w = |w: i32| {
+            if framed {
+                (w + 12).max(key_h)
+            } else {
+                (w + 14).max(24)
+            }
+        };
+        let after_key = if framed { 8 } else { 6 };
+        let frame_pad = if framed { 10 } else { 0 };
         let widths: Vec<i32> = hints
             .iter()
             .map(|hint| {
-                let pill = (self.bold.measure(hint.button, size) as i32 + 14).max(24);
-                pill + 6 + self.font.measure(hint.action, size) as i32
+                let key = key_w(self.bold.measure(hint.button, size) as i32);
+                key + after_key + self.font.measure(hint.action, size) as i32 + frame_pad
             })
             .collect();
         let total: i32 = widths.iter().sum();
@@ -2444,8 +2477,30 @@ impl Menu {
             let start = x;
             let (pill, ink) = self.button_colors(hint.button);
             let label_w = self.bold.measure(hint.button, size) as i32;
-            let pill_w = (label_w + 14).max(24);
-            canvas.rounded_rect(x, centre - 12, pill_w as u32, 24, 12, pill);
+            let pill_w = key_w(label_w);
+            // Only when it cannot fit: elide the words, never the pill.
+            let room = if tight {
+                (canvas.width as i32 - x - pill_w - after_key - frame_pad - 4).max(0) as u32
+            } else {
+                widths[index] as u32
+            };
+            let action = self.font.elide(hint.action, size, room);
+            let action_w = self.font.measure(&action, size) as i32;
+            let label_colour = if framed {
+                let (y, w) = (
+                    centre - key_h / 2,
+                    pill_w + after_key + action_w + frame_pad,
+                );
+                let theme = &self.theme;
+                canvas.rect(x, y, w as u32, key_h as u32, theme.color.background_alt);
+                canvas.frame(x, y, w as u32, key_h as u32, theme.color.border);
+                let radius = theme.menu.radius;
+                canvas.rounded_rect(x, y, pill_w as u32, key_h as u32, radius, pill);
+                theme.color.foreground
+            } else {
+                canvas.rounded_rect(x, centre - 12, pill_w as u32, 24, 12, pill);
+                self.theme.color.muted
+            };
             self.bold.draw(
                 canvas,
                 hint.button,
@@ -2454,18 +2509,10 @@ impl Menu {
                 size,
                 ink,
             );
-            x += pill_w + 6;
-
-            // Only when it cannot fit: elide the words, never the pill.
-            let room = if tight {
-                (canvas.width as i32 - x - 4).max(0) as u32
-            } else {
-                widths[index] as u32
-            };
-            let action = self.font.elide(hint.action, size, room);
+            x += pill_w + after_key;
             self.font
-                .draw(canvas, &action, x, baseline, size, self.theme.color.muted);
-            x += self.font.measure(&action, size) as i32;
+                .draw(canvas, &action, x, baseline, size, label_colour);
+            x += action_w + frame_pad;
             self.hint_hits.push((start, top, x + gap / 2, hint.button));
             x += gap;
         }
@@ -2475,6 +2522,11 @@ impl Menu {
 impl App for Menu {
     fn scanlines(&self) -> (u8, u32) {
         self.theme.effects.scanline()
+    }
+
+    fn sweep(&self) -> Option<layer::Sweep> {
+        // The menu sits under the bar.
+        layer::Sweep::from_theme(&self.theme, self.theme.bar.height as i32)
     }
 
     fn background(&self) -> Rgb {

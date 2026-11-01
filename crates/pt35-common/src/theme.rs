@@ -29,6 +29,11 @@ pub struct Effects {
     pub scanline_period: u32,
     /// A halo round the big readouts (the home's clock), in pixels.
     pub glow: u32,
+    /// A band of light rolls down the screen every this many seconds, like
+    /// a CRT's refresh. 0 is never.
+    pub sweep: u32,
+    /// How bright the band is at its middle, in percent.
+    pub sweep_strength: u8,
 }
 
 impl Default for Effects {
@@ -37,6 +42,8 @@ impl Default for Effects {
             scanlines: 0,
             scanline_period: 2,
             glow: 0,
+            sweep: 0,
+            sweep_strength: 8,
         }
     }
 }
@@ -191,6 +198,11 @@ pub struct Menu {
     /// the machine's state down the left. All apps, Settings and Power are
     /// tiles, and the side column goes.
     pub launcher_home: bool,
+    /// Opacity of the home's tiles and panels, in percent, so the wallpaper
+    /// shows through. Below 100 their corners are square.
+    pub tile_opacity: u8,
+    /// The legend's buttons as square keys, each with its action in a frame.
+    pub hint_frames: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -418,6 +430,8 @@ impl Default for Menu {
             scrollbar_width: 8,
             launcher_columns: 1,
             launcher_home: false,
+            tile_opacity: 100,
+            hint_frames: false,
         }
     }
 }

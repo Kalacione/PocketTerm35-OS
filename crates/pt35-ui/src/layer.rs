@@ -104,6 +104,63 @@ impl SurfaceSpec {
     }
 }
 
+/// A band of light rolling down the whole screen now and then. Every surface
+/// times it off the wall clock, so the bar, the menu and the overlay over
+/// the apps draw one band between them without talking to each other.
+#[derive(Clone, Copy)]
+pub struct Sweep {
+    pub every: Duration,
+    pub color: Rgb,
+    /// Percent at the band's middle.
+    pub strength: u8,
+    /// Where this surface's first line is on the screen.
+    pub top: i32,
+}
+
+/// How long the band takes from the top of the screen to the bottom.
+const SWEEP_TIME: u128 = 1600;
+/// Half the band's height.
+const SWEEP_HALF: i32 = 40;
+/// The panel's height. The shell runs on one panel.
+const SCREEN_HEIGHT: i32 = 480;
+
+impl Sweep {
+    /// The theme's sweep for a surface whose first line is `top` on screen.
+    pub fn from_theme(theme: &pt35_common::theme::Theme, top: i32) -> Option<Self> {
+        let effects = &theme.effects;
+        (effects.sweep > 0).then(|| Self {
+            every: Duration::from_secs(effects.sweep as u64),
+            color: theme.color.foreground,
+            strength: effects.sweep_strength,
+            top,
+        })
+    }
+
+    fn phase(&self) -> (u128, u128) {
+        let every = self.every.as_millis().max(SWEEP_TIME + 1);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        (now % every, every)
+    }
+
+    /// The band's middle in this surface's lines, while one is passing.
+    fn position(&self) -> Option<i32> {
+        let (phase, _) = self.phase();
+        (phase < SWEEP_TIME).then(|| {
+            let travel = (SCREEN_HEIGHT + 2 * SWEEP_HALF) as u128;
+            (phase * travel / SWEEP_TIME) as i32 - SWEEP_HALF - self.top
+        })
+    }
+
+    /// Time until the next band starts.
+    fn until_next(&self) -> Duration {
+        let (phase, every) = self.phase();
+        Duration::from_millis((every - phase) as u64)
+    }
+}
+
 /// What a client of this module implements.
 pub trait App {
     /// Paint one frame. The canvas is already sized to the surface.
@@ -153,6 +210,11 @@ pub trait App {
     /// An alpha of 0 draws none.
     fn scanlines(&self) -> (u8, u32) {
         (0, 2)
+    }
+
+    /// A band of light that rolls down the screen now and then. None is never.
+    fn sweep(&self) -> Option<Sweep> {
+        None
     }
 
     /// Draw onto a fully transparent surface instead of [`App::background`].
@@ -312,13 +374,17 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
     }
 
     while state.running {
-        let wait = if state.app.animating() {
+        let sweep = state.app.sweep();
+        let wait = if state.app.animating() || sweep.and_then(|s| s.position()).is_some() {
             Duration::from_millis(16)
         } else {
-            Duration::from_millis(500)
+            // Woken for the next band, so it starts at the top of the screen.
+            let next = sweep.map_or(Duration::MAX, |s| s.until_next());
+            Duration::from_millis(500).min(next)
         };
         event_loop.dispatch(wait, &mut state)?;
-        let animating = state.app.animating();
+        let sweeping = state.app.sweep().and_then(|s| s.position()).is_some();
+        let animating = state.app.animating() || sweeping;
         if animating || state.was_animating {
             state.dirty = true;
         }
@@ -368,6 +434,12 @@ impl<A: App + 'static> State<A> {
             canvas.fill(self.app.background());
         }
         self.app.draw(&mut canvas);
+        if let Some(sweep) = self.app.sweep() {
+            if let Some(centre) = sweep.position() {
+                let peak = (sweep.strength.min(100) as u32 * 255 / 100) as u8;
+                canvas.band(centre, SWEEP_HALF, sweep.color, peak);
+            }
+        }
         let (alpha, period) = self.app.scanlines();
         canvas.scanlines(alpha, period);
 

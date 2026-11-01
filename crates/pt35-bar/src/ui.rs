@@ -259,6 +259,10 @@ impl App for Bar {
         self.theme.effects.scanline()
     }
 
+    fn sweep(&self) -> Option<layer::Sweep> {
+        layer::Sweep::from_theme(&self.theme, 0)
+    }
+
     fn background(&self) -> pt35_common::theme::Rgb {
         self.theme.color.background
     }
@@ -595,15 +599,22 @@ impl App for Bar {
     }
 }
 
-/// Scanlines over the apps: a surface that only draws them and takes no
-/// input. The bar and the menu draw their own, being above it.
-struct Scanlines((u8, u32));
+/// Scanlines and the sweep over the apps: a surface that only draws them
+/// and takes no input. The bar and the menu draw their own, being above it.
+struct Scanlines {
+    lines: (u8, u32),
+    sweep: Option<layer::Sweep>,
+}
 
 impl App for Scanlines {
     fn draw(&mut self, _canvas: &mut Canvas) {}
 
     fn scanlines(&self) -> (u8, u32) {
-        self.0
+        self.lines
+    }
+
+    fn sweep(&self) -> Option<layer::Sweep> {
+        self.sweep
     }
 
     fn transparent(&self) -> bool {
@@ -612,11 +623,15 @@ impl App for Scanlines {
 }
 
 pub fn run_scanlines() -> Result<()> {
-    let lines = pt35_common::load_theme().effects.scanline();
-    if lines.0 == 0 {
+    let theme = pt35_common::load_theme();
+    let overlay = Scanlines {
+        lines: theme.effects.scanline(),
+        sweep: layer::Sweep::from_theme(&theme, 0),
+    };
+    if overlay.lines.0 == 0 && overlay.sweep.is_none() {
         return Ok(());
     }
-    layer::run(Scanlines(lines), SurfaceSpec::decoration("pt35-scanlines"))
+    layer::run(overlay, SurfaceSpec::decoration("pt35-scanlines"))
 }
 
 pub fn run() -> Result<()> {
