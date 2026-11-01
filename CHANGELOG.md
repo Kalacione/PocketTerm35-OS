@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u8 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: a media widget on the home.
+
+### Added
+
+- The home's widget column shows a MEDIA panel in place of NETWORK while
+  an MPRIS player plays or is paused: state as a shape and a word
+  (PLAYING, PAUSED), title, artist, position in segments and as
+  `1:23 / 7:29`. A tap on the panel plays or pauses. Read with
+  `playerctl` off the Wayland thread; with no `playerctl` or no player,
+  NETWORK stays. mpv needs `mpv-mpris`; VLC speaks MPRIS on its own.
+
 ## 0.4.2+u6 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u5 with a CRT sweep, a framed

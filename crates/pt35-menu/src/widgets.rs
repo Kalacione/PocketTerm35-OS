@@ -1,4 +1,5 @@
-//! What the widget column of the launcher shows: the machine and the network.
+//! What the widget column of the launcher shows: the machine, the network,
+//! and the media player when one is playing.
 //! Read on the menu's poll, never before the first frame.
 
 use std::sync::mpsc::Receiver;
@@ -19,7 +20,24 @@ pub struct Readings {
     /// The address and the network name cost a process each: read once, off
     /// the Wayland thread.
     slow: Option<Receiver<(Option<String>, Option<String>)>>,
+    /// The player, over MPRIS. Some while one is playing or paused.
+    pub media: Option<Media>,
+    media_rx: Option<Receiver<Option<Media>>>,
 }
+
+/// What an MPRIS player is playing, as `playerctl` reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Media {
+    pub playing: bool,
+    pub title: String,
+    pub artist: Option<String>,
+    /// Seconds.
+    pub position: Option<f64>,
+    pub length: Option<f64>,
+}
+
+const MEDIA_FORMAT: &str =
+    "{{status}}\t{{title}}\t{{artist}}\t{{position}}\t{{mpris:length}}\t{{xesam:url}}";
 
 impl Readings {
     pub fn sampled(&self) -> bool {
@@ -36,6 +54,23 @@ impl Readings {
             self.slow = Some(rx);
         }
         self.sampled = true;
+        // playerctl is a process per read: off the Wayland thread, one at a time.
+        match self.media_rx.as_ref().map(|rx| rx.try_recv()) {
+            Some(Ok(media)) => {
+                self.media = media;
+                self.media_rx = None;
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)) => {}
+            _ => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let out =
+                        crate::providers::run("playerctl", &["metadata", "--format", MEDIA_FORMAT]);
+                    let _ = tx.send(out.as_deref().and_then(parse_media));
+                });
+                self.media_rx = Some(rx);
+            }
+        }
         if let Some((address, ssid)) = self.slow.as_ref().and_then(|rx| rx.try_recv().ok()) {
             (self.address, self.ssid) = (address, ssid);
             self.slow = None;
@@ -68,6 +103,62 @@ impl Readings {
             }
         }
         self.net_last = Some((iface.to_string(), down, up, at));
+    }
+}
+
+impl Readings {
+    /// Play or pause, and show it at once rather than on the next read.
+    pub fn play_pause(&mut self) {
+        let Some(media) = self.media.as_mut() else {
+            return;
+        };
+        media.playing = !media.playing;
+        if let Ok(mut child) = std::process::Command::new("playerctl")
+            .arg("play-pause")
+            .spawn()
+        {
+            std::thread::spawn(move || child.wait());
+        }
+    }
+}
+
+/// One line of `MEDIA_FORMAT`. A stopped player, or none, is no widget.
+fn parse_media(out: &str) -> Option<Media> {
+    let mut f = out.trim_end_matches('\n').split('\t');
+    let playing = match f.next()? {
+        "Playing" => true,
+        "Paused" => false,
+        _ => return None,
+    };
+    let text = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(String::from);
+    let micros = |s: Option<&str>| {
+        s.and_then(|s| s.trim().parse::<f64>().ok())
+            .filter(|m| *m > 0.0)
+            .map(|m| m / 1e6)
+    };
+    let title = text(f.next());
+    let artist = text(f.next());
+    let position = micros(f.next());
+    let length = micros(f.next());
+    // A file with no tags: its name, as the player shows it.
+    let title = title
+        .or_else(|| text(f.next()).and_then(|url| url.rsplit('/').next().map(String::from)))
+        .unwrap_or_else(|| "Unknown".into());
+    Some(Media {
+        playing,
+        title,
+        artist,
+        position: position.or(length.map(|_| 0.0)),
+        length,
+    })
+}
+
+/// `1:23`, `1:02:03`.
+pub fn clock(seconds: f64) -> String {
+    let s = seconds.max(0.0) as u64;
+    match s / 3600 {
+        0 => format!("{}:{:02}", s / 60, s % 60),
+        h => format!("{h}:{:02}:{:02}", s / 60 % 60, s % 60),
     }
 }
 
@@ -133,6 +224,29 @@ mod tests {
         assert_eq!(last, (800, 1000));
         assert_eq!(cpu_percent(last, now), Some(33));
         assert_eq!(cpu_percent(now, now), None, "no time passed");
+    }
+
+    #[test]
+    fn media_reads_playerctl() {
+        let m = parse_media("Playing\tSong\tBand\t83000000\t296000000\tfile:///m/a.mp3\n").unwrap();
+        assert!(m.playing);
+        assert_eq!(
+            (m.title.as_str(), m.artist.as_deref()),
+            ("Song", Some("Band"))
+        );
+        assert_eq!((m.position, m.length), (Some(83.0), Some(296.0)));
+        let m = parse_media("Paused\t\t\t\t\tfile:///m/a%20b.mp3").unwrap();
+        assert!(!m.playing);
+        assert_eq!(m.title, "a%20b.mp3");
+        assert_eq!((m.artist, m.length), (None, None));
+        assert_eq!(parse_media("Stopped\tSong\t\t\t\t"), None);
+        assert_eq!(parse_media(""), None);
+    }
+
+    #[test]
+    fn clocks_read_like_a_player() {
+        assert_eq!(clock(83.4), "1:23");
+        assert_eq!(clock(3723.0), "1:02:03");
     }
 
     #[test]
