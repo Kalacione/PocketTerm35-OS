@@ -2,8 +2,8 @@
 
 ## 0.4.2+u9 (2026-11-01)
 
-PocketTerm 3.5 Unleashed build: framed lists and Quick settings as a
-list.
+PocketTerm 3.5 Unleashed build: 0.4.2+u8 with framed lists and Quick
+settings as a list.
 
 ### Added
 
@@ -12,6 +12,19 @@ list.
   selection with its ink, hairlines between rows, and switches as a
   knob with the state written as 0 or 1 beside it, in the display face
   when there is one. Off by default.
+
+## 0.4.2+u8 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u7 with a media widget on the home.
+
+### Added
+
+- The home's widget column shows a MEDIA panel in place of NETWORK while
+  an MPRIS player plays or is paused: state as a shape and a word
+  (PLAYING, PAUSED), title, artist, position in segments and as
+  `1:23 / 7:29`. A tap on the panel plays or pauses. Read with
+  `playerctl` off the Wayland thread; with no `playerctl` or no player,
+  NETWORK stays. mpv needs `mpv-mpris`; VLC speaks MPRIS on its own.
 
 ## 0.4.2+u7 (2026-11-01)
 

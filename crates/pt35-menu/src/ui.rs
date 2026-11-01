@@ -233,6 +233,8 @@ pub struct Menu {
     /// RP2040 that owns the keyboard drops off the USB bus, and Windows,
     /// Settings and Power were unreachable that way.
     side_hits: Vec<(i32, i32, i32, i32, usize)>,
+    /// The home's media panel, a play/pause button as a whole.
+    media_hit: Option<(i32, i32, i32, i32)>,
     hint_hits: Vec<(i32, i32, i32, &'static str)>,
     error: Option<String>,
     /// A slow provider still running on a worker thread, and the screen it
@@ -411,6 +413,7 @@ impl Menu {
             crumb_hits: Vec::new(),
             scrollbar: None,
             side_hits: Vec::new(),
+            media_hit: None,
             hint_hits: Vec::new(),
             error: None,
             loading: None,
@@ -1542,6 +1545,12 @@ impl Menu {
         }
 
         let net_top = top + system_h + gap;
+        self.media_hit = None;
+        if let Some(media) = self.readings.media.clone() {
+            self.media_hit = Some((x, net_top, x + w, bottom));
+            self.draw_media(canvas, &media, x, net_top, w, bottom - net_top);
+            return;
+        }
         self.draw_panel(canvas, x, net_top, w, bottom - net_top, "NETWORK");
         let status = self.status.clone().unwrap_or_default();
         let mut y = net_top + 40;
@@ -1574,6 +1583,57 @@ impl Menu {
             let text = self.mono.elide(&text, small, (w - 24) as u32);
             self.mono
                 .draw(canvas, &text, x + 12, y, small, theme.color.foreground);
+        }
+    }
+
+    /// The player in place of the network while one plays or is paused. The
+    /// state is a shape and a word, never a colour alone. A tap plays or pauses.
+    fn draw_media(
+        &mut self,
+        canvas: &mut Canvas,
+        media: &crate::widgets::Media,
+        x: i32,
+        top: i32,
+        w: i32,
+        h: i32,
+    ) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint;
+        let fg = theme.color.foreground;
+        self.draw_panel(canvas, x, top, w, h, "MEDIA");
+        let mut y = top + 40;
+        let (ix, iy) = (x + 12, y - 11);
+        if media.playing {
+            for i in 0..6 {
+                canvas.rect(ix + i, iy + i, 1, (12 - 2 * i) as u32, fg);
+            }
+        } else {
+            canvas.rect(ix, iy, 4, 12, fg);
+            canvas.rect(ix + 7, iy, 4, 12, fg);
+        }
+        let state = if media.playing { "PLAYING" } else { "PAUSED" };
+        self.mono.draw(canvas, state, x + 30, y, small, fg);
+        y += 24;
+        let title = self.font.elide(&media.title, small, (w - 24) as u32);
+        self.font.draw(canvas, &title, x + 12, y, small, fg);
+        if let Some(artist) = &media.artist {
+            y += 20;
+            let artist = self.font.elide(artist, small, (w - 24) as u32);
+            self.font
+                .draw(canvas, &artist, x + 12, y, small, theme.color.muted);
+        }
+        if let (Some(position), Some(length)) = (media.position, media.length) {
+            y += 12;
+            let level = (position / length).clamp(0.0, 1.0) as f32;
+            self.draw_segments(canvas, x + 12, y, w - 24, level);
+            y += 34;
+            let text = format!(
+                "{} / {}",
+                crate::widgets::clock(position),
+                crate::widgets::clock(length)
+            );
+            self.mono
+                .draw(canvas, &text, x + 12, y, small, theme.color.muted);
         }
     }
 
@@ -2987,6 +3047,12 @@ impl App for Menu {
         for (left, top, right, bottom, index) in self.side_hits.clone() {
             if x >= left && x < right && y >= top && y < bottom {
                 return self.open_side(index);
+            }
+        }
+        if let Some((left, top, right, bottom)) = self.media_hit {
+            if self.home() && x >= left && x < right && y >= top && y < bottom {
+                self.readings.play_pause();
+                return true;
             }
         }
         for (left, top, right, bottom, index) in self.row_hits.clone() {
