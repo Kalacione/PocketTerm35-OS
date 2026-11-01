@@ -260,7 +260,12 @@ impl App for Bar {
     }
 
     fn sweep(&self) -> Option<layer::Sweep> {
-        layer::Sweep::from_theme(&self.theme, 0)
+        // Only with the menu up, the band then crosses both. Over an app it
+        // would be a flicker on the bar alone, and none crosses a video.
+        self.drawn
+            .as_ref()
+            .filter(|s| s.menu_open)
+            .and_then(|_| layer::Sweep::from_theme(&self.theme, 0))
     }
 
     fn background(&self) -> pt35_common::theme::Rgb {
@@ -599,22 +604,16 @@ impl App for Bar {
     }
 }
 
-/// Scanlines and the sweep over the apps: a surface that only draws them
-/// and takes no input. The bar and the menu draw their own, being above it.
-struct Scanlines {
-    lines: (u8, u32),
-    sweep: Option<layer::Sweep>,
-}
+/// Scanlines over the apps: a surface that only draws them and takes no
+/// input. The bar and the menu draw their own, being above it. No sweep:
+/// a band rolling over a video is a distraction, not a look.
+struct Scanlines((u8, u32));
 
 impl App for Scanlines {
     fn draw(&mut self, _canvas: &mut Canvas) {}
 
     fn scanlines(&self) -> (u8, u32) {
-        self.lines
-    }
-
-    fn sweep(&self) -> Option<layer::Sweep> {
-        self.sweep
+        self.0
     }
 
     fn transparent(&self) -> bool {
@@ -623,15 +622,11 @@ impl App for Scanlines {
 }
 
 pub fn run_scanlines() -> Result<()> {
-    let theme = pt35_common::load_theme();
-    let overlay = Scanlines {
-        lines: theme.effects.scanline(),
-        sweep: layer::Sweep::from_theme(&theme, 0),
-    };
-    if overlay.lines.0 == 0 && overlay.sweep.is_none() {
+    let lines = pt35_common::load_theme().effects.scanline();
+    if lines.0 == 0 {
         return Ok(());
     }
-    layer::run(overlay, SurfaceSpec::decoration("pt35-scanlines"))
+    layer::run(Scanlines(lines), SurfaceSpec::decoration("pt35-scanlines"))
 }
 
 pub fn run() -> Result<()> {

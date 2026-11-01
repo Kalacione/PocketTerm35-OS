@@ -10,9 +10,9 @@ legend and see-through tiles.
 - `[effects] sweep`: a soft band of light rolls down the whole screen in
   1.6s, like a CRT's refresh, at least this many seconds apart.
   `[effects] sweep_jitter` adds up to that many seconds more to each gap,
-  at random. The bar, the menu and `pt35-bar --scanlines` over the apps
-  time it off the wall clock, random part included, so it is one band
-  across all three. `[effects] sweep_strength` is its brightness in
+  at random. Only while the menu is up, never over an app. The bar and
+  the menu time it off the wall clock, random part included, so it is
+  one band across both. `[effects] sweep_strength` is its brightness in
   percent (8). 0, the default, is off.
 - `[menu] hint_frames`: the legend's buttons as square keys, each with
   its action in a frame. Off by default.
