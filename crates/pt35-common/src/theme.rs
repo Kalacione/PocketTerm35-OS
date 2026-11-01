@@ -197,6 +197,9 @@ pub struct Menu {
     pub window_previews: bool,
     /// Height of the header strip that carries the screen title.
     pub header_height: u32,
+    /// The header as a prompt: the way back small, `PT35 ❯ SETTINGS ❯`,
+    /// then the screen in front in the display face. Fits a 32px header.
+    pub title_header: bool,
     /// Height of the button-legend bar along the bottom. It doubles as a touch
     /// target, so it is deliberately taller than the text needs.
     pub hint_height: u32,
@@ -444,6 +447,7 @@ impl Default for Menu {
             type_to_search: true,
             window_previews: true,
             header_height: 46,
+            title_header: false,
             hint_height: 46,
             radius: 2,
             columns: 3,

@@ -68,6 +68,7 @@ animations    = true     # selection glide and screen settle, ~0.1s each
 type_to_search = true    # typing on the launcher searches; false on stock firmware
 window_previews = true   # switcher cards show each window as it last looked
 header_height = 46
+title_header  = false    # the trail small, the screen title in family_display
 hint_height   = 46
 radius        = 2
 columns       = 3

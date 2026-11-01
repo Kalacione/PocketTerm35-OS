@@ -1011,6 +1011,18 @@ impl Menu {
         let pad = theme.menu.padding_x as i32;
         let track = theme.font.tracking;
         canvas.rect(0, 0, canvas.width, height, theme.color.background_alt);
+        if theme.menu.title_header {
+            canvas.rect(
+                0,
+                height as i32 - 1,
+                canvas.width,
+                1,
+                theme.color.foreground,
+            );
+            let baseline = self.draw_title_trail(canvas);
+            self.draw_header_readout(canvas, baseline);
+            return height as i32;
+        }
         canvas.rect(0, height as i32 - 2, canvas.width, 2, theme.color.accent);
 
         let baseline = (height as f32 * 0.64) as i32;
@@ -1105,7 +1117,105 @@ impl Menu {
                 track,
             );
         }
+        self.draw_header_readout(canvas, baseline);
+        height as i32
+    }
 
+    /// `[menu] title_header`: the way back small and dim, then the screen in
+    /// front in the display face, with separators like a shell prompt's.
+    fn draw_title_trail(&mut self, canvas: &mut Canvas) -> i32 {
+        let theme = self.theme.clone();
+        let height = theme.menu.header_height as f32;
+        let pad = theme.menu.padding_x as i32;
+        let track = theme.font.tracking;
+        let small = theme.font.size_hint;
+        let sep = theme.color.muted;
+        let baseline = (height * 0.75) as i32;
+        // A pixel face like VT323 draws small for its size.
+        let size = if self.display.is_some() {
+            height - 2.0
+        } else {
+            height * 0.56
+        };
+        let trail: Vec<String> = self
+            .model
+            .trail()
+            .iter()
+            .map(|t| t.to_uppercase())
+            .collect();
+        // (depth, name): PT35 is the top screen, depth 1.
+        let (title, mut parents) = match trail.split_last() {
+            Some((last, above)) if !above.is_empty() => {
+                let mut parents = vec![(1, "PT35".to_string())];
+                parents.extend(
+                    above[1..]
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(i, t)| (i + 2, t)),
+                );
+                (last.clone(), parents)
+            }
+            _ => ("PT35".to_string(), Vec::new()),
+        };
+        let title_w = match self.display.as_mut() {
+            Some(face) => face.measure(&title, size),
+            None => self.mono.measure(&title, size),
+        } as i32;
+        // Room for the readout on the right. The screens just under PT35 go
+        // first, the way bash's PROMPT_DIRTRIM shortens a path. Depth 0 is the
+        // ellipsis that stands in for them: drawn, not a link.
+        let room = canvas.width as i32 - 2 * pad - 64 - title_w;
+        loop {
+            let width: i32 = parents
+                .iter()
+                .map(|(_, t)| {
+                    self.mono
+                        .measure_tracked(&format!("{t} \u{276f} "), small, track)
+                        as i32
+                })
+                .sum();
+            if width <= room || parents.len() < 2 || (parents.len() == 2 && parents[1].0 == 0) {
+                break;
+            }
+            if parents[1].0 == 0 {
+                parents.remove(2);
+            } else {
+                parents[1] = (0, "\u{2026}".to_string());
+            }
+        }
+        let mut x = pad;
+        for (depth, name) in &parents {
+            let left = x;
+            x = self
+                .mono
+                .draw_tracked(canvas, name, x, baseline, small, sep, track);
+            if *depth > 0 {
+                self.crumb_hits.push((left - 4, x + 4, *depth));
+            }
+            x = self
+                .mono
+                .draw_tracked(canvas, " \u{276f} ", x, baseline, small, sep, track);
+        }
+        let face = self.display.as_mut().unwrap_or(&mut self.mono);
+        face.draw_glow(
+            canvas,
+            &title,
+            x + 2,
+            baseline + 1,
+            size,
+            theme.color.accent,
+            theme.effects.glow,
+        );
+        baseline
+    }
+
+    /// Right of the header: the search field, or where you are in a list
+    /// that runs off the screen.
+    fn draw_header_readout(&mut self, canvas: &mut Canvas, baseline: i32) {
+        let theme = self.theme.clone();
+        let pad = theme.menu.padding_x as i32;
+        let track = theme.font.tracking;
         let filtering = self.model.screen().list.mode() == Mode::Filter;
         let filter = self.model.screen().list.filter().to_string();
         let list = &self.model.screen().list;
@@ -1135,7 +1245,6 @@ impl Menu {
             color,
             track,
         );
-        height as i32
     }
 
     fn draw_rows(&mut self, canvas: &mut Canvas, top: i32, bottom: i32) {
@@ -3668,7 +3777,8 @@ impl App for Menu {
             };
         }
         for (left, right, depth) in self.crumb_hits.clone() {
-            if y < self.theme.menu.header_height as i32 && x >= left && x < right {
+            // The gap under the header counts: a 32px header is then a 40px target.
+            if y < self.theme.menu.header_height as i32 + 8 && x >= left && x < right {
                 let step = self.model.back_to(depth);
                 return self.apply(step);
             }
