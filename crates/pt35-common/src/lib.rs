@@ -6,6 +6,7 @@
 //! builds and tests on any host.
 
 pub mod apps;
+pub mod hosts;
 pub mod ipc;
 pub mod menu;
 pub mod paths;

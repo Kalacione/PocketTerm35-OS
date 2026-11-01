@@ -17,10 +17,34 @@ pub struct Readings {
     cpu_last: Option<(u64, u64)>,
     /// The address and the network name cost a process each: read once, off
     /// the Wayland thread.
-    slow: Option<Receiver<(Option<String>, Option<String>)>>,
+    slow: Option<Receiver<Slow>>,
+    /// The SD card and any USB drive, read once per open. `None` until read.
+    pub volumes: Option<Vec<Volume>>,
+    /// The pinned hosts as pt35d last found them.
+    pub hosts: Vec<pt35_common::ipc::HostStatus>,
     /// The player, over MPRIS. Some while one is playing or paused.
     pub media: Option<Media>,
     media_rx: Option<Receiver<Option<Media>>>,
+}
+
+/// Address, network name and volumes: a process each, read once per open.
+type Slow = (Option<String>, Option<String>, Option<Vec<Volume>>);
+
+/// A mounted drive, as `df` reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Volume {
+    /// `SD`, `NVME` or `USB`, from the device.
+    pub kind: &'static str,
+    /// `/` for the system, else the mount point's last part.
+    pub name: String,
+    pub size: u64,
+    pub free: u64,
+}
+
+impl Volume {
+    pub fn used(&self) -> f32 {
+        1.0 - self.free as f32 / self.size.max(1) as f32
+    }
 }
 
 /// What an MPRIS player is playing, as `playerctl` reports it.
@@ -47,7 +71,7 @@ impl Readings {
         if !self.sampled {
             let (tx, rx) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let _ = tx.send((crate::providers::ip_address(), ssid()));
+                let _ = tx.send((crate::providers::ip_address(), ssid(), volumes()));
             });
             self.slow = Some(rx);
         }
@@ -69,8 +93,9 @@ impl Readings {
                 self.media_rx = Some(rx);
             }
         }
-        if let Some((address, ssid)) = self.slow.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            (self.address, self.ssid) = (address, ssid);
+        if let Some((address, ssid, volumes)) = self.slow.as_ref().and_then(|rx| rx.try_recv().ok())
+        {
+            (self.address, self.ssid, self.volumes) = (address, ssid, volumes);
             self.slow = None;
         }
         let now = cpu_times();
@@ -86,6 +111,11 @@ impl Readings {
             Ok(pt35_common::ipc::Response::Traffic(traffic)) => Some(traffic),
             _ => None,
         };
+        if let Ok(pt35_common::ipc::Response::Hosts { hosts }) =
+            crate::live::request(&pt35_common::ipc::Request::Hosts)
+        {
+            self.hosts = hosts;
+        }
     }
 }
 
@@ -168,6 +198,59 @@ pub fn cpu_percent(last: (u64, u64), now: (u64, u64)) -> Option<u8> {
     Some(((total - idle) * 100 / total) as u8)
 }
 
+fn volumes() -> Option<Vec<Volume>> {
+    crate::providers::run("df", &["-B1", "--output=source,size,avail,target"])
+        .map(|out| parse_df(&out))
+}
+
+/// The system and removable drives. Not tmpfs, not boot partitions.
+fn parse_df(out: &str) -> Vec<Volume> {
+    let mut out: Vec<Volume> = out
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let mut f = line.split_whitespace();
+            let (source, size, free) = (f.next()?, f.next()?, f.next()?);
+            let target = f.collect::<Vec<_>>().join(" ");
+            let removable = ["/media/", "/run/media/", "/mnt/"]
+                .iter()
+                .any(|p| target.starts_with(p));
+            if !source.starts_with("/dev/") || !(target == "/" || removable) {
+                return None;
+            }
+            let kind = if source.contains("mmcblk") {
+                "SD"
+            } else if source.contains("nvme") {
+                "NVME"
+            } else {
+                "USB"
+            };
+            let name = match target.as_str() {
+                "/" => "/".to_string(),
+                t => t.rsplit('/').next().unwrap_or(t).to_uppercase(),
+            };
+            Some(Volume {
+                kind,
+                name,
+                size: size.parse().ok()?,
+                free: free.parse().ok()?,
+            })
+        })
+        .collect();
+    // The system first.
+    out.sort_by_key(|v| v.name != "/");
+    out
+}
+
+/// `72 GB`, `1.2 GB`, `640 MB`.
+pub fn bytes(n: u64) -> String {
+    match n as f64 {
+        b if b >= 10e9 => format!("{:.0} GB", b / 1e9),
+        b if b >= 1e9 => format!("{:.1} GB", b / 1e9),
+        b => format!("{:.0} MB", b / 1e6),
+    }
+}
+
 /// The Wi-Fi connection's name, from NetworkManager's active list: no scan.
 fn ssid() -> Option<String> {
     let out = crate::providers::run(
@@ -200,15 +283,24 @@ pub fn log_level(bits_per_second: f32) -> f32 {
 pub enum Widget {
     Network,
     Media,
+    Storage,
+    Hosts,
 }
 
 impl Widget {
-    pub const ALL: [Widget; 2] = [Widget::Network, Widget::Media];
+    pub const ALL: [Widget; 4] = [
+        Widget::Network,
+        Widget::Media,
+        Widget::Storage,
+        Widget::Hosts,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Widget::Network => "network",
             Widget::Media => "media",
+            Widget::Storage => "storage",
+            Widget::Hosts => "hosts",
         }
     }
 
@@ -216,6 +308,8 @@ impl Widget {
         match self {
             Widget::Network => "Network",
             Widget::Media => "Media",
+            Widget::Storage => "Storage",
+            Widget::Hosts => "Hosts",
         }
     }
 
@@ -330,6 +424,23 @@ mod tests {
         assert!((log_level(1e6) - 0.5).abs() < 1e-6);
         assert_eq!(log_level(1e9), 1.0);
         assert_eq!(log_level(1e11), 1.0);
+    }
+
+    #[test]
+    fn volumes_are_the_system_and_removable_drives() {
+        let df = "Filesystem Size Avail Mounted on
+/dev/sda1 64000000000 1000000000 /media/dje/MY KEY
+tmpfs 100 50 /run
+/dev/mmcblk0p2 120000000000 72000000000 /
+/dev/mmcblk0p1 500000000 400000000 /boot/firmware
+";
+        let v = parse_df(df);
+        assert_eq!(v.len(), 2);
+        assert_eq!((v[0].kind, v[0].name.as_str()), ("SD", "/"));
+        assert_eq!((v[1].kind, v[1].name.as_str()), ("USB", "MY KEY"));
+        assert_eq!(bytes(v[0].free), "72 GB");
+        assert_eq!(bytes(v[1].free), "1.0 GB");
+        assert_eq!(bytes(640_000_000), "640 MB");
     }
 
     #[test]

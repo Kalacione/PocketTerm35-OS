@@ -59,6 +59,10 @@ fn dynamic(builtin: Builtin, payload: &str) -> Plan {
             payload,
         ),
         // Pairing may ask for a PIN, so it runs where it can be typed.
+        Builtin::Ssh => match payload.strip_prefix("host:") {
+            Some(host) => ssh(host),
+            None => Plan::Nothing,
+        },
         Builtin::Bluetooth => in_terminal(
             "pt35-bt",
             r#"pt35-quick bluetooth connect "$1"; read -r _"#,
@@ -78,6 +82,15 @@ fn dynamic(builtin: Builtin, payload: &str) -> Plan {
         | Builtin::Appearance
         | Builtin::About => Plan::Nothing,
     }
+}
+
+/// A session in its own terminal. The name was read from `~/.ssh/config`.
+pub fn ssh(host: &str) -> Plan {
+    Plan::Spawn(
+        ["foot", "-a", "pt35-ssh", "ssh", "--", host]
+            .map(str::to_string)
+            .to_vec(),
+    )
 }
 
 fn in_terminal(app_id: &str, script: &str, arg: &str) -> Plan {

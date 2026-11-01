@@ -60,12 +60,14 @@ const WIDGET_WIDTH: i32 = 216;
 const LAUNCHER_LABEL: u32 = 32;
 
 /// What a tap on the widget pile does.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum WidgetHit {
     /// The header: the next widget.
     Next,
     /// A player command for `playerctl`.
     Player(&'static str),
+    /// Open something and leave the menu: Files, an SSH session.
+    Run(crate::model::Command),
 }
 
 /// A percent from the theme as an alpha.
@@ -505,7 +507,11 @@ impl Menu {
         let filtering = self.model.screen().list.mode() == Mode::Filter;
         let all_apps = matches!(
             self.model.dynamic_builtin(),
-            Some(pt35_common::menu::Builtin::Apps | pt35_common::menu::Builtin::Widgets)
+            Some(
+                pt35_common::menu::Builtin::Apps
+                    | pt35_common::menu::Builtin::Widgets
+                    | pt35_common::menu::Builtin::Ssh
+            )
         );
         // On the home, Y opens All apps: pins are made and undone there.
         let top = self.on_launcher() && self.model.depth() == 1 && !self.home();
@@ -1667,6 +1673,8 @@ impl Menu {
         match widget {
             Widget::Network => self.draw_network(canvas, x, pile_top, w, h),
             Widget::Media => self.draw_media(canvas, x, pile_top, w, h),
+            Widget::Storage => self.draw_storage(canvas, x, pile_top, w, h),
+            Widget::Hosts => self.draw_hosts(canvas, x, pile_top, w, h),
         }
     }
 
@@ -1733,6 +1741,169 @@ impl Menu {
             self.mono
                 .draw(canvas, text, tx, base, size, theme.color.foreground);
             tx += self.mono.measure(text, size) as i32 + 10;
+        }
+    }
+
+    /// A word on a filled tag: the state reads without its colour.
+    fn draw_tag(&mut self, canvas: &mut Canvas, right: i32, top: i32, text: &str, fill: Rgb) {
+        let size = self.theme.font.size_hint * 0.8;
+        let tw = self.mono_bold.measure(text, size) as i32;
+        let w = tw + 12;
+        canvas.rect(right - w, top, w as u32, 18, fill);
+        let ink = self.theme.color.background;
+        self.mono_bold
+            .draw(canvas, text, right - w + 6, top + 14, size, ink);
+    }
+
+    /// The system drive and any USB one: a gauge each and the space left.
+    /// Green, then amber past 75%, then red and FULL past 90%. A tap opens
+    /// Files.
+    fn draw_storage(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint * 0.875;
+        let volumes = match self.readings.volumes.clone() {
+            Some(v) if !v.is_empty() => v,
+            v => {
+                let text = if v.is_none() {
+                    "Reading..."
+                } else {
+                    "No drive"
+                };
+                self.mono
+                    .draw(canvas, text, x + 12, top + 40, small, theme.color.muted);
+                return;
+            }
+        };
+        for (i, v) in volumes.iter().take(3).enumerate() {
+            let y = top + 30 + i as i32 * 50;
+            let used = v.used();
+            let colour = match used {
+                u if u >= 0.9 => theme.color.critical,
+                u if u >= 0.75 => theme.color.warning,
+                _ => theme.color.ok,
+            };
+            self.mono_bold.draw(
+                canvas,
+                v.kind,
+                x + 12,
+                y + 14,
+                small,
+                theme.color.foreground,
+            );
+            let nx = x + 12 + self.mono_bold.measure(v.kind, small) as i32 + 8;
+            let free = crate::widgets::bytes(v.free);
+            let mut right = x + w - 12;
+            if used >= 0.9 {
+                self.draw_tag(canvas, right, y + 1, "FULL", colour);
+                right -= 52;
+            }
+            let fw = self.mono.measure(&free, small) as i32;
+            self.mono
+                .draw(canvas, &free, right - fw, y + 14, small, theme.color.muted);
+            let name = self
+                .font
+                .elide(&v.name, small, (right - fw - 8 - nx).max(0) as u32);
+            self.font
+                .draw(canvas, &name, nx, y + 14, small, theme.color.foreground);
+            self.draw_segments_in(canvas, x + 12, y + 22, w - 24, used, colour);
+        }
+        self.widget_hits.push((
+            x,
+            top + 32,
+            x + w,
+            top + h,
+            WidgetHit::Run(crate::model::Command::App("files".into())),
+        ));
+    }
+
+    /// The pinned hosts of `~/.ssh/config`, as pt35d last found them. UP,
+    /// SLOW past 150 ms, DOWN on a filled tag. A tap on a row connects.
+    fn draw_hosts(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint * 0.8;
+        let hosts = self.readings.hosts.clone();
+        if hosts.is_empty() {
+            let text = self
+                .font
+                .elide("All apps > SSH: Y pins", small, (w - 24) as u32);
+            self.font
+                .draw(canvas, &text, x + 12, top + 40, small, theme.color.muted);
+            return;
+        }
+        let row_h = ((h - 34) / 3).min(50);
+        for (i, host) in hosts.iter().take(3).enumerate() {
+            let y = top + 26 + i as i32 * row_h;
+            let (rx, rw, rh) = (x + 8, w - 16, row_h - 4);
+            canvas.frame(rx, y, rw as u32, rh as u32, theme.color.border);
+            let (word, colour, filled) = match (host.up, host.latency_ms) {
+                (None, _) => ("CHECK", theme.color.muted, false),
+                (Some(false), _) => ("DOWN", theme.color.critical, true),
+                (Some(true), Some(ms)) if ms > 150 => ("SLOW", theme.color.warning, false),
+                (Some(true), _) => ("UP", theme.color.ok, false),
+            };
+            let (tx, tw) = (rx + 6, 52);
+            if filled {
+                canvas.rect(tx, y + 6, tw as u32, 18, colour);
+            } else {
+                canvas.frame(tx, y + 6, tw as u32, 18, colour);
+            }
+            let ink = if filled {
+                theme.color.background
+            } else {
+                colour
+            };
+            let lw = self.mono_bold.measure(word, small) as i32;
+            self.mono_bold
+                .draw(canvas, word, tx + (tw - lw) / 2, y + 20, small, ink);
+            let name = self.font.elide(
+                &host.name,
+                small * 1.1,
+                (rx + rw - 6 - (tx + tw + 8)) as u32,
+            );
+            self.font.draw(
+                canvas,
+                &name,
+                tx + tw + 8,
+                y + 20,
+                small * 1.1,
+                theme.color.foreground,
+            );
+            let detail = match (host.up, host.latency_ms) {
+                (Some(true), Some(0)) => "<1 ms".into(),
+                (Some(true), Some(ms)) => format!("{ms} ms"),
+                (Some(false), _) => "no answer".into(),
+                _ => String::new(),
+            };
+            let dw = self.mono.measure(&detail, small) as i32;
+            self.mono.draw(
+                canvas,
+                &detail,
+                rx + rw - 6 - dw,
+                y + rh - 7,
+                small,
+                if host.up == Some(false) {
+                    theme.color.foreground
+                } else {
+                    theme.color.muted
+                },
+            );
+            if let Some(address) = &host.address {
+                let address = self
+                    .mono
+                    .elide(address, small, (rw - 18 - dw).max(0) as u32);
+                self.mono
+                    .draw(canvas, &address, tx, y + rh - 7, small, theme.color.muted);
+            }
+            self.widget_hits.push((
+                rx,
+                y,
+                rx + rw,
+                y + rh,
+                WidgetHit::Run(crate::model::Command::Dynamic {
+                    builtin: pt35_common::menu::Builtin::Ssh,
+                    payload: format!("host:{}", host.name),
+                }),
+            ));
         }
     }
 
@@ -1930,6 +2101,19 @@ impl Menu {
 
     /// A segmented bar: eight blocks, lit up to `level` (0 to 1).
     fn draw_segments(&mut self, canvas: &mut Canvas, x: i32, y: i32, w: i32, level: f32) {
+        let lit = self.theme.color.foreground;
+        self.draw_segments_in(canvas, x, y, w, level, lit);
+    }
+
+    fn draw_segments_in(
+        &mut self,
+        canvas: &mut Canvas,
+        x: i32,
+        y: i32,
+        w: i32,
+        level: f32,
+        lit_colour: Rgb,
+    ) {
         let theme = &self.theme;
         let count = 8;
         let gap = 3;
@@ -1937,7 +2121,7 @@ impl Menu {
         let lit = (level.clamp(0.0, 1.0) * count as f32).round() as i32;
         for i in 0..count {
             let color = if i < lit {
-                theme.color.foreground
+                lit_colour
             } else {
                 theme.color.border
             };
@@ -3343,9 +3527,10 @@ impl App for Menu {
                 .widget_hits
                 .iter()
                 .find(|(l, t, r, b, _)| x >= *l && x < *r && y >= *t && y < *b)
-                .map(|hit| hit.4);
+                .map(|hit| hit.4.clone());
             match hit {
                 Some(WidgetHit::Next) => return self.flip_widget(true),
+                Some(WidgetHit::Run(command)) => return self.apply(Step::Run(command)),
                 Some(WidgetHit::Player(command)) => {
                     self.readings.control(command);
                     return true;

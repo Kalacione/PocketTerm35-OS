@@ -86,6 +86,11 @@ pub fn widgets_path() -> PathBuf {
     state_dir().join("widgets")
 }
 
+/// The hosts pinned to the HOSTS widget, by their `~/.ssh/config` name.
+pub fn hosts_path() -> PathBuf {
+    state_dir().join("hosts")
+}
+
 /// The widget the home showed last.
 pub fn widget_path() -> PathBuf {
     state_dir().join("widget")

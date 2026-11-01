@@ -85,6 +85,9 @@ pub enum Request {
     /// The recent throughput of the interface carrying traffic, for the
     /// home's graph. Kept by the daemon: the menu is a new process per open.
     Traffic,
+    /// Whether each pinned host answers on its SSH port. Checked by the
+    /// daemon every couple of minutes, not on each open.
+    Hosts,
 }
 
 impl Request {
@@ -150,6 +153,7 @@ impl Request {
                 key: key.to_string(),
             },
             ["traffic"] => Request::Traffic,
+            ["hosts"] => Request::Hosts,
             ["wheel", "up"] => Request::Wheel { down: false },
             ["wheel", "down"] => Request::Wheel { down: true },
             ["window", "closeall"] => Request::Window {
@@ -342,6 +346,17 @@ pub enum Response {
     Error { message: String },
     Status(Status),
     Traffic(Traffic),
+    // A struct variant: an internally tagged enum cannot carry a bare list.
+    Hosts { hosts: Vec<HostStatus> },
+}
+
+/// One pinned host. `up` is `None` until its first check.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct HostStatus {
+    pub name: String,
+    pub address: Option<String>,
+    pub up: Option<bool>,
+    pub latency_ms: Option<u32>,
 }
 
 /// Samples `Traffic` keeps: three minutes at the daemon's 2 second poll.
@@ -492,6 +507,25 @@ mod tests {
     }
 
     #[test]
+    fn widget_replies_serialize() {
+        for response in [
+            Response::Traffic(Traffic {
+                iface: Some("eth0".into()),
+                samples: vec![[1.0, 2.0]],
+            }),
+            Response::Hosts {
+                hosts: vec![HostStatus {
+                    name: "nas".into(),
+                    ..HostStatus::default()
+                }],
+            },
+        ] {
+            let line = serde_json::to_string(&response).unwrap();
+            assert_eq!(serde_json::from_str::<Response>(&line).unwrap(), response);
+        }
+    }
+
+    #[test]
     fn requests_roundtrip() {
         roundtrip(Request::Menu {
             action: Toggle::Toggle,
@@ -509,6 +543,7 @@ mod tests {
         });
         roundtrip(Request::Status);
         roundtrip(Request::Traffic);
+        roundtrip(Request::Hosts);
         roundtrip(Request::Window {
             action: WindowAction::Close,
         });

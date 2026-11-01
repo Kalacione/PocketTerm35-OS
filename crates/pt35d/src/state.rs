@@ -680,6 +680,9 @@ impl Session {
             }
             Request::Subscribe => Ok(Response::Status(self.status.clone())),
             Request::Traffic => Ok(Response::Traffic(self.traffic.snapshot())),
+            Request::Hosts => Ok(Response::Hosts {
+                hosts: crate::hosts::snapshot(),
+            }),
 
             Request::Menu { action, page } => {
                 self.toggle_menu(action, page)?;

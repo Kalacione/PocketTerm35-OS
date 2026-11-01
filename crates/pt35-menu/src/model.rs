@@ -667,7 +667,7 @@ impl Model {
                 // On the launcher, Y pins the app under the cursor.
                 if matches!(
                     self.dynamic_builtin(),
-                    Some(Builtin::Launcher | Builtin::Apps | Builtin::Widgets)
+                    Some(Builtin::Launcher | Builtin::Apps | Builtin::Widgets | Builtin::Ssh)
                 ) {
                     return match self.selected_payload() {
                         Some(p) if crate::providers::pinnable(p) => Step::TogglePin(p.to_string()),
