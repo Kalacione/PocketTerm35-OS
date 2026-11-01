@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2+u7 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u6 with a new menu mark.
+
+### Changed
+
+- The menu button, the launcher's tile and the fastfetch logo draw an
+  eight-blade shutter instead of the skull, 15x15. Its gaps run along
+  rows, columns and diagonals, so it stays sharp at scale 1 in the bar.
+  `[bar] menu_icon = "skull"` keeps its name and now means the shutter.
+
 ## 0.4.2+u6 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u5 with a CRT sweep, a framed

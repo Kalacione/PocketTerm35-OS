@@ -377,7 +377,7 @@ pub struct Status {
     #[serde(default)]
     pub menu_open: bool,
     /// The launcher is what is in front, not a screen opened over an app (the
-    /// switcher from Select, the power menu). The bar fills the skull slot
+    /// switcher from Select, the power menu). The bar fills the shutter slot
     /// only then, and keeps the app's slot filled otherwise.
     #[serde(default)]
     pub launcher_active: bool,

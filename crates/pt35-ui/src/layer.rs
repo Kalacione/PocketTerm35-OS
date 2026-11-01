@@ -452,7 +452,7 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
         state.was_animating = animating;
         // Never while a button or finger is down: sway 1.10 segfaults when a
         // surface changes layer under its own pointer grab, and a click on
-        // the skull is what opens the menu that raises the bar.
+        // the shutter is what opens the menu that raises the bar.
         let raised = state.app.raised();
         if raised != state.raised && state.buttons == 0 && state.fingers.is_empty() {
             state.raised = raised;
