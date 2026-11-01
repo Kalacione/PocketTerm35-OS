@@ -32,18 +32,25 @@ pub fn candidates(family: &str) -> Vec<PathBuf> {
     if let Some(explicit) = std::env::var_os("PT35_FONT") {
         paths.push(PathBuf::from(explicit));
     }
-    for dir in [
+    // The user's own fonts first: a theme can ship a face without root.
+    let user = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .map(|d| d.join("fonts"));
+    let system = [
         "/usr/share/fonts/truetype/dejavu",
         "/usr/share/fonts/truetype/liberation",
         "/usr/share/fonts/truetype/noto",
         "/usr/share/fonts/TTF",
         "/System/Library/Fonts/Supplemental",
-    ] {
-        paths.push(PathBuf::from(dir).join(format!("{slug}.ttf")));
+    ]
+    .map(PathBuf::from);
+    for dir in user.into_iter().chain(system) {
+        paths.push(dir.join(format!("{slug}.ttf")));
         if let Some(styled) = &styled {
-            paths.push(PathBuf::from(dir).join(format!("{styled}.ttf")));
+            paths.push(dir.join(format!("{styled}.ttf")));
         }
-        paths.push(PathBuf::from(dir).join(format!("{slug}-Regular.ttf")));
+        paths.push(dir.join(format!("{slug}-Regular.ttf")));
     }
     paths
 }
@@ -118,6 +125,51 @@ impl Font {
         color: Rgb,
     ) -> i32 {
         self.draw_tracked(canvas, text, x, y, size, color, 0.0)
+    }
+
+    /// Draw `text` over a soft halo of itself, `radius` pixels wide: the glow
+    /// of a phosphor readout. A radius of 0 is plain [`Font::draw`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_glow(
+        &mut self,
+        canvas: &mut Canvas,
+        text: &str,
+        x: i32,
+        y: i32,
+        size: f32,
+        color: Rgb,
+        radius: u32,
+    ) -> i32 {
+        if radius > 0 {
+            let width = self.measure(text, size) as usize + 4;
+            let height = (size * 1.5).ceil() as usize;
+            let base = size.ceil() as i32;
+            let mut alpha = vec![0u8; width * height];
+            let mut pen = 0f32;
+            for ch in text.chars() {
+                let (metrics, bitmap) = self.glyph(ch, size).clone();
+                let gx = pen as i32 + metrics.xmin;
+                let gy = base - metrics.height as i32 - metrics.ymin;
+                for row in 0..metrics.height {
+                    for col in 0..metrics.width {
+                        let (px, py) = (gx + col as i32, gy + row as i32);
+                        if px >= 0 && py >= 0 && (px as usize) < width && (py as usize) < height {
+                            let at = py as usize * width + px as usize;
+                            alpha[at] = alpha[at].max(bitmap[row * metrics.width + col]);
+                        }
+                    }
+                }
+                pen += metrics.advance_width;
+            }
+            let r = radius as usize;
+            let halo = crate::canvas::glow_mask(&alpha, width, height, r);
+            let side = width + 2 * r;
+            for (i, &a) in halo.iter().enumerate() {
+                let (col, row) = ((i % side) as i32, (i / side) as i32);
+                canvas.blend(x + col - r as i32, y - base + row - r as i32, a, color);
+            }
+        }
+        self.draw(canvas, text, x, y, size, color)
     }
 
     /// Draw with extra spacing between glyphs.

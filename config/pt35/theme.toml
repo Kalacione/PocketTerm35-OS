@@ -34,6 +34,7 @@ family          = "DejaVu Sans"
 family_bold     = "DejaVu Sans Bold"
 family_mono      = "DejaVu Sans Mono"
 family_mono_bold = "DejaVu Sans Mono Bold"
+family_display   = ""    # big readouts (clocks); empty is family_mono
 size_bar        = 15.0
 size_menu       = 23.0
 size_title      = 24.0
@@ -48,6 +49,7 @@ show_volume   = true
 show_mode     = true     # the BTN / MOUSE readout
 show_clock    = true
 clock_format  = "%H:%M"  # strftime; "%-I:%M %p" for 12-hour
+# clock_size  = 26.0     # with family_display; unset is size_bar
 menu_icon     = "skull"  # skull | bars
 dock_labels   = false    # names next to the taskbar icons
 
@@ -76,6 +78,8 @@ launcher_home = false    # with a grid: pinned apps, clock and state widgets
 
 [effects]
 scanlines     = 0        # CRT lines, % darker; pt35-bar --scanlines covers apps
+scanline_period = 2      # one dark line in this many; keep bar height a multiple
+glow          = 0        # halo round the home's clock, px
 
 # GTK and Qt apps. dark | light | keep (leave the desktop settings alone).
 # Applied through gsettings at login and on reload; Qt follows GTK.

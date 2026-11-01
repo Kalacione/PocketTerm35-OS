@@ -17,6 +17,8 @@ struct Bar {
     mono: Font,
     /// For toasts: the one message a key press gets has to read at a glance.
     bold: Font,
+    /// `[font] family_display`, for the clock. None draws it in mono.
+    display: Option<Font>,
     feed: StatusFeed,
     icons: pt35_ui::icon::Icons,
     /// What the last frame was drawn from. Ticking is cheap, drawing is not.
@@ -57,7 +59,14 @@ enum Action {
 }
 
 impl Bar {
-    fn new(theme: Theme, font: Font, mono: Font, bold: Font, feed: StatusFeed) -> Self {
+    fn new(
+        theme: Theme,
+        font: Font,
+        mono: Font,
+        bold: Font,
+        display: Option<Font>,
+        feed: StatusFeed,
+    ) -> Self {
         let clock = now(&theme);
         let icons = pt35_ui::icon::Icons::new(&theme.icons.theme);
         Self {
@@ -66,6 +75,7 @@ impl Bar {
             font,
             mono,
             bold,
+            display,
             feed,
             drawn: None,
             clock,
@@ -149,7 +159,14 @@ impl Bar {
             if has_icon {
                 let inset = (width - icon_size as i32) / 2;
                 if let Some(icon) = self.icons.get(icon, icon_size) {
-                    icon.draw(canvas, x + inset, centre - icon_size as i32 / 2);
+                    let y = centre - icon_size as i32 / 2;
+                    // In the colour of the fill's ink, like a launcher tile:
+                    // a coloured icon on an accent fill is lost.
+                    if focused {
+                        icon.draw_tinted(canvas, x + inset, y, ink);
+                    } else {
+                        icon.draw(canvas, x + inset, y);
+                    }
                 }
             } else {
                 let label = pt35_common::apps::initials(app);
@@ -162,13 +179,30 @@ impl Bar {
         let mut text_x = x + SLOT_PAD;
         if has_icon {
             if let Some(drawn) = self.icons.get(icon, icon_size) {
-                drawn.draw(canvas, text_x, centre - icon_size as i32 / 2);
+                let y = centre - icon_size as i32 / 2;
+                if focused {
+                    drawn.draw_tinted(canvas, text_x, y, ink);
+                } else {
+                    drawn.draw(canvas, text_x, y);
+                }
             }
             text_x += icon_size as i32 + ICON_GAP;
         }
         let label = self.font.elide(app, size, slot.label_width.max(0) as u32);
         self.font.draw(canvas, &label, text_x, baseline, size, ink);
         x + width + SLOT_GAP
+    }
+
+    /// The face and size a status segment is drawn in: the display face for
+    /// the clock when there is one, mono for the rest.
+    fn face(&mut self, tap: Option<segments::Tap>) -> (&mut Font, f32) {
+        let size = self.theme.font.size_bar;
+        match self.display.as_mut() {
+            Some(display) if tap == Some(segments::Tap::Clock) => {
+                (display, self.theme.bar.clock_size.unwrap_or(size))
+            }
+            _ => (&mut self.mono, size),
+        }
     }
 
     fn icon_size(&self, canvas: &Canvas) -> u32 {
@@ -221,8 +255,8 @@ fn now(theme: &Theme) -> String {
 }
 
 impl App for Bar {
-    fn scanlines(&self) -> u8 {
-        self.theme.effects.scanline_alpha()
+    fn scanlines(&self) -> (u8, u32) {
+        self.theme.effects.scanline()
     }
 
     fn background(&self) -> pt35_common::theme::Rgb {
@@ -397,7 +431,8 @@ impl App for Bar {
             } else {
                 &segment.text
             };
-            let width = self.mono.measure(text, size) as i32 + icon_width;
+            let (face, text_size) = self.face(segment.tap);
+            let width = face.measure(text, text_size) as i32 + icon_width;
             if right - width <= x {
                 break;
             }
@@ -425,12 +460,14 @@ impl App for Bar {
                 ),
                 (None, None) => {}
             }
-            self.mono.draw(
+            let (face, text_size) = self.face(segment.tap);
+            let text_baseline = centre + (text_size * 0.36).round() as i32;
+            face.draw(
                 canvas,
                 text,
                 right + icon_width,
-                baseline,
-                size,
+                text_baseline,
+                text_size,
                 segment.color,
             );
             // No separator: an icon is its own boundary, and a dot plus two
@@ -560,12 +597,12 @@ impl App for Bar {
 
 /// Scanlines over the apps: a surface that only draws them and takes no
 /// input. The bar and the menu draw their own, being above it.
-struct Scanlines(u8);
+struct Scanlines((u8, u32));
 
 impl App for Scanlines {
     fn draw(&mut self, _canvas: &mut Canvas) {}
 
-    fn scanlines(&self) -> u8 {
+    fn scanlines(&self) -> (u8, u32) {
         self.0
     }
 
@@ -575,11 +612,11 @@ impl App for Scanlines {
 }
 
 pub fn run_scanlines() -> Result<()> {
-    let alpha = pt35_common::load_theme().effects.scanline_alpha();
-    if alpha == 0 {
+    let lines = pt35_common::load_theme().effects.scanline();
+    if lines.0 == 0 {
         return Ok(());
     }
-    layer::run(Scanlines(alpha), SurfaceSpec::decoration("pt35-scanlines"))
+    layer::run(Scanlines(lines), SurfaceSpec::decoration("pt35-scanlines"))
 }
 
 pub fn run() -> Result<()> {
@@ -591,8 +628,11 @@ pub fn run() -> Result<()> {
 
     let height = theme.bar.height;
     let bold = Font::load(&theme.font.family_bold).or_else(|_| Font::load(&theme.font.family))?;
+    let display = Some(&theme.font.family_display)
+        .filter(|family| !family.is_empty())
+        .and_then(|family| Font::load(family).ok());
     layer::run(
-        Bar::new(theme, font, mono, bold, feed),
+        Bar::new(theme, font, mono, bold, display, feed),
         SurfaceSpec::bar(height),
     )
 }

@@ -71,34 +71,10 @@ impl Icon {
         }
     }
 
-    /// The alpha channel, padded by `radius` and box-blurred twice: close
-    /// enough to a gaussian at this size, and no dependency.
     fn blur(&self, radius: u32) -> Vec<u8> {
-        let side = (self.size + 2 * radius) as usize;
-        let r = radius as usize;
-        let mut alpha = vec![0f32; side * side];
-        for row in 0..self.size as usize {
-            for col in 0..self.size as usize {
-                let a = self.pixels[(row * self.size as usize + col) * 4 + 3];
-                alpha[(row + r) * side + col + r] = a as f32;
-            }
-        }
-        let window = (2 * r + 1) as f32;
-        for _ in 0..2 {
-            for (step, stride) in [(1, side), (side, 1)] {
-                let source = alpha.clone();
-                for line in 0..side {
-                    for at in 0..side {
-                        let lo = at.saturating_sub(r);
-                        let hi = (at + r).min(side - 1);
-                        let sum: f32 = (lo..=hi).map(|k| source[line * stride + k * step]).sum();
-                        alpha[line * stride + at * step] = sum / window;
-                    }
-                }
-            }
-        }
-        // Half strength: a glow, not a second icon.
-        alpha.iter().map(|a| (a * 0.5) as u8).collect()
+        let alpha: Vec<u8> = self.pixels.chunks(4).map(|px| px[3]).collect();
+        let side = self.size as usize;
+        crate::canvas::glow_mask(&alpha, side, side, radius as usize)
     }
 
     /// Draw the shape in one colour. Status icons belong to the theme, not to

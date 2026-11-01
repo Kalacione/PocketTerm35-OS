@@ -17,18 +17,35 @@ pub struct Theme {
 }
 
 /// Looks that cost a little on every frame. All off by default.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Effects {
-    /// CRT scanlines on the bar and the menu: every other line darkened by
-    /// this many percent. `pt35-bar --scanlines` lays them over the apps too.
+    /// CRT scanlines on the bar and the menu: one line in `scanline_period`
+    /// darkened by this many percent. `pt35-bar --scanlines` lays them over
+    /// the apps too.
     pub scanlines: u8,
+    /// 2 is every other line. On a 3.5" panel lines that fine read as a dim
+    /// screen, not as lines: 3 or 4 shows them.
+    pub scanline_period: u32,
+    /// A halo round the big readouts (the home's clock), in pixels.
+    pub glow: u32,
+}
+
+impl Default for Effects {
+    fn default() -> Self {
+        Self {
+            scanlines: 0,
+            scanline_period: 2,
+            glow: 0,
+        }
+    }
 }
 
 impl Effects {
-    /// The scanline darkness as an alpha.
-    pub fn scanline_alpha(&self) -> u8 {
-        (self.scanlines.min(100) as u32 * 255 / 100) as u8
+    /// The scanline darkness as an alpha, and the period.
+    pub fn scanline(&self) -> (u8, u32) {
+        let alpha = (self.scanlines.min(100) as u32 * 255 / 100) as u8;
+        (alpha, self.scanline_period)
     }
 }
 
@@ -95,6 +112,9 @@ pub struct Fonts {
     /// Used for readouts: the bar, headers, notes and the button legend. A
     /// fixed pitch is what makes a panel read as instrumentation.
     pub family_mono: String,
+    /// The big readouts: the home's clock and the bar's. Empty is the mono
+    /// face.
+    pub family_display: String,
     /// Extra pixels between glyphs in headers and the legend.
     pub tracking: f32,
     pub size_bar: f32,
@@ -116,6 +136,9 @@ pub struct Bar {
     pub show_mode: bool,
     pub show_clock: bool,
     pub clock_format: String,
+    /// The clock's size, when `[font] family_display` draws it. Unset is
+    /// `[font] size_bar`.
+    pub clock_size: Option<f32>,
     /// The mark on the menu button: `skull` or `bars`.
     pub menu_icon: String,
     /// App names next to the dock icons. Off by default: at 640px, names crowd
@@ -345,6 +368,7 @@ impl Default for Fonts {
             family_bold: "DejaVu Sans Bold".into(),
             family_mono: "DejaVu Sans Mono".into(),
             family_mono_bold: "DejaVu Sans Mono Bold".into(),
+            family_display: String::new(),
             tracking: 1.0,
             size_bar: 15.0,
             size_menu: 23.0,
@@ -365,6 +389,7 @@ impl Default for Bar {
             show_mode: true,
             show_clock: true,
             clock_format: "%H:%M".into(),
+            clock_size: None,
             menu_icon: "skull".into(),
             dock_labels: false,
         }
