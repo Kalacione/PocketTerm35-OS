@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.2+u6 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u5 with a CRT sweep, a framed
+legend and see-through tiles.
+
+### Added
+
+- `[effects] sweep`: a soft band of light rolls down the whole screen in
+  1.6s, like a CRT's refresh, at least this many seconds apart.
+  `[effects] sweep_jitter` adds up to that many seconds more to each gap,
+  at random. Only while the menu is up, never over an app. The bar and
+  the menu time it off the wall clock, random part included, so it is
+  one band across both. `[effects] sweep_strength` is its brightness in
+  percent (8). 0, the default, is off.
+- `[menu] hint_frames`: the legend's buttons as square keys, each with
+  its action in a frame. Off by default.
+- `[menu] tile_opacity`: the home's tiles and panels at this opacity, so
+  the wallpaper shows through. Below 100 their corners are square. 100 by
+  default. With a home, Quick settings has a Tiles slider for it, from 20
+  to 100%, saved in `appearance.toml`.
+
 ## 0.4.2+u5 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u4 with a display face and visible

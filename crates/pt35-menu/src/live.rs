@@ -82,6 +82,7 @@ pub fn value(adjust: Adjust, status: Option<&Status>) -> String {
             .map(|percent| format!("{percent}%"))
             .unwrap_or_else(|| "n/a".into()),
         Adjust::Scale => format!("{:.2}x", status.scale),
+        Adjust::TileOpacity => String::new(),
     }
 }
 

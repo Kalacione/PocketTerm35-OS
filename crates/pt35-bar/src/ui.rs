@@ -259,6 +259,15 @@ impl App for Bar {
         self.theme.effects.scanline()
     }
 
+    fn sweep(&self) -> Option<layer::Sweep> {
+        // Only with the menu up, the band then crosses both. Over an app it
+        // would be a flicker on the bar alone, and none crosses a video.
+        self.drawn
+            .as_ref()
+            .filter(|s| s.menu_open)
+            .and_then(|_| layer::Sweep::from_theme(&self.theme, 0))
+    }
+
     fn background(&self) -> pt35_common::theme::Rgb {
         self.theme.color.background
     }
@@ -596,7 +605,8 @@ impl App for Bar {
 }
 
 /// Scanlines over the apps: a surface that only draws them and takes no
-/// input. The bar and the menu draw their own, being above it.
+/// input. The bar and the menu draw their own, being above it. No sweep:
+/// a band rolling over a video is a distraction, not a look.
 struct Scanlines((u8, u32));
 
 impl App for Scanlines {

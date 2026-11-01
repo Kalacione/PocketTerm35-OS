@@ -75,11 +75,16 @@ gap           = 10
 scrollbar_width = 8      # also a target: click the track, drag the thumb
 launcher_columns = 1     # 2 or more: the launcher is a grid of big icons
 launcher_home = false    # with a grid: pinned apps, clock and state widgets
+tile_opacity  = 100      # %; below 100 the wallpaper shows through the home
+hint_frames   = false    # legend as square keys with framed actions
 
 [effects]
 scanlines     = 0        # CRT lines, % darker; pt35-bar --scanlines covers apps
 scanline_period = 2      # one dark line in this many; keep bar height a multiple
 glow          = 0        # halo round the home's clock, px
+sweep         = 0        # a band of light rolls down every N seconds; 0 off
+sweep_jitter  = 0        # up to N seconds more between two, at random
+sweep_strength = 8       # % at the band's middle
 
 # GTK and Qt apps. dark | light | keep (leave the desktop settings alone).
 # Applied through gsettings at login and on reload; Qt follows GTK.

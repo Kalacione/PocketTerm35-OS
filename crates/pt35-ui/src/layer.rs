@@ -104,6 +104,124 @@ impl SurfaceSpec {
     }
 }
 
+/// A band of light rolling down the whole screen now and then. Every surface
+/// times it off the wall clock, so the bar, the menu and the overlay over
+/// the apps draw one band between them without talking to each other. The
+/// gap is random, but every surface draws the same random.
+#[derive(Clone, Copy)]
+pub struct Sweep {
+    /// The shortest gap between two bands.
+    pub every: Duration,
+    /// Up to this much is added to a gap, at random.
+    pub jitter: Duration,
+    pub color: Rgb,
+    /// Percent at the band's middle.
+    pub strength: u8,
+    /// Where this surface's first line is on the screen.
+    pub top: i32,
+}
+
+/// How long the band takes from the top of the screen to the bottom.
+const SWEEP_TIME: u64 = 1600;
+/// Half the band's height.
+const SWEEP_HALF: i32 = 40;
+/// The panel's height. The shell runs on one panel.
+const SCREEN_HEIGHT: i32 = 480;
+
+/// splitmix64: the same number for the same slot in every process.
+fn scatter(slot: u64) -> u64 {
+    let mut z = slot.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+impl Sweep {
+    /// The theme's sweep for a surface whose first line is `top` on screen.
+    pub fn from_theme(theme: &pt35_common::theme::Theme, top: i32) -> Option<Self> {
+        let effects = &theme.effects;
+        (effects.sweep > 0).then(|| Self {
+            every: Duration::from_secs(effects.sweep as u64),
+            jitter: Duration::from_secs(effects.sweep_jitter as u64),
+            color: theme.color.foreground,
+            strength: effects.sweep_strength,
+            top,
+        })
+    }
+
+    /// Milliseconds since the band of the current slot started, which is
+    /// negative before it, and the start of the next slot's band.
+    ///
+    /// Time is cut into slots of `every + jitter / 2`, and each slot's band
+    /// starts up to `jitter / 2` into it: gaps then run from `every` to
+    /// `every + jitter`.
+    fn timing(&self, now: u64) -> (i64, u64) {
+        let half = self.jitter.as_millis() as u64 / 2;
+        let slot = (self.every.as_millis() as u64 + half).max(SWEEP_TIME + 1);
+        // Never so late that a band runs into the next slot's.
+        let spread = half.min(slot - SWEEP_TIME).max(1);
+        let start = |n: u64| n * slot + scatter(n) % spread;
+        let n = now / slot;
+        let since = now as i64 - start(n) as i64;
+        (since, start(n + 1))
+    }
+
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    }
+
+    /// The band's middle in this surface's lines, while one is passing.
+    fn position(&self) -> Option<i32> {
+        let (since, _) = self.timing(Self::now());
+        (0..SWEEP_TIME as i64).contains(&since).then(|| {
+            let travel = (SCREEN_HEIGHT + 2 * SWEEP_HALF) as i64;
+            (since * travel / SWEEP_TIME as i64) as i32 - SWEEP_HALF - self.top
+        })
+    }
+
+    /// Time until the next band starts.
+    fn until_next(&self) -> Duration {
+        let now = Self::now();
+        let (since, next) = self.timing(now);
+        let wait = if since < 0 {
+            (-since) as u64
+        } else {
+            next.saturating_sub(now)
+        };
+        Duration::from_millis(wait)
+    }
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use super::*;
+
+    #[test]
+    fn gaps_stay_between_every_and_every_plus_jitter() {
+        let sweep = Sweep {
+            every: Duration::from_secs(8),
+            jitter: Duration::from_secs(5),
+            color: Rgb(0, 0, 0),
+            strength: 8,
+            top: 0,
+        };
+        let mut starts = Vec::new();
+        for now in 0..200_000u64 {
+            if sweep.timing(now).0 == 0 {
+                starts.push(now);
+            }
+        }
+        assert!(starts.len() > 10);
+        for pair in starts.windows(2) {
+            let gap = pair[1] - pair[0];
+            assert!((8_000..=13_000).contains(&gap), "gap {gap}");
+        }
+    }
+}
+
 /// What a client of this module implements.
 pub trait App {
     /// Paint one frame. The canvas is already sized to the surface.
@@ -153,6 +271,11 @@ pub trait App {
     /// An alpha of 0 draws none.
     fn scanlines(&self) -> (u8, u32) {
         (0, 2)
+    }
+
+    /// A band of light that rolls down the screen now and then. None is never.
+    fn sweep(&self) -> Option<Sweep> {
+        None
     }
 
     /// Draw onto a fully transparent surface instead of [`App::background`].
@@ -312,13 +435,17 @@ pub fn run<A: App + 'static>(app: A, spec: SurfaceSpec) -> Result<()> {
     }
 
     while state.running {
-        let wait = if state.app.animating() {
+        let sweep = state.app.sweep();
+        let wait = if state.app.animating() || sweep.and_then(|s| s.position()).is_some() {
             Duration::from_millis(16)
         } else {
-            Duration::from_millis(500)
+            // Woken for the next band, so it starts at the top of the screen.
+            let next = sweep.map_or(Duration::MAX, |s| s.until_next());
+            Duration::from_millis(500).min(next)
         };
         event_loop.dispatch(wait, &mut state)?;
-        let animating = state.app.animating();
+        let sweeping = state.app.sweep().and_then(|s| s.position()).is_some();
+        let animating = state.app.animating() || sweeping;
         if animating || state.was_animating {
             state.dirty = true;
         }
@@ -368,6 +495,12 @@ impl<A: App + 'static> State<A> {
             canvas.fill(self.app.background());
         }
         self.app.draw(&mut canvas);
+        if let Some(sweep) = self.app.sweep() {
+            if let Some(centre) = sweep.position() {
+                let peak = (sweep.strength.min(100) as u32 * 255 / 100) as u8;
+                canvas.band(centre, SWEEP_HALF, sweep.color, peak);
+            }
+        }
         let (alpha, period) = self.app.scanlines();
         canvas.scanlines(alpha, period);
 

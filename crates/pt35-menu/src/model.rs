@@ -233,6 +233,7 @@ impl Model {
                 "volume" => Some(Adjust::Volume),
                 "brightness" => Some(Adjust::Brightness),
                 "scale" => Some(Adjust::Scale),
+                "tile_opacity" => Some(Adjust::TileOpacity),
                 _ => None,
             };
         }

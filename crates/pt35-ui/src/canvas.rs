@@ -122,6 +122,38 @@ impl Canvas {
         }
     }
 
+    /// A one pixel outline, square cornered.
+    pub fn frame(&mut self, x: i32, y: i32, w: u32, h: u32, color: Rgb) {
+        self.rect(x, y, w, 1, color);
+        self.rect(x, y + h as i32 - 1, w, 1, color);
+        self.rect(x, y, 1, h, color);
+        self.rect(x + w as i32 - 1, y, 1, h, color);
+    }
+
+    /// A soft horizontal band of light, brightest on `centre` and gone
+    /// `half` lines either side. Premultiplied "over", so it lands on a
+    /// transparent overlay as well as on an opaque frame.
+    pub fn band(&mut self, centre: i32, half: i32, color: Rgb, peak: u8) {
+        if half <= 0 || peak == 0 {
+            return;
+        }
+        let width = self.width as usize;
+        let lo = (centre - half).max(0);
+        let hi = (centre + half).min(self.height as i32 - 1);
+        for y in lo..=hi {
+            let a = peak as u32 * (half - (y - centre).abs()) as u32 / half as u32;
+            let keep = 255 - a;
+            let row = &mut self.pixels[y as usize * width..(y as usize + 1) * width];
+            for px in row {
+                let mix = |shift: u32, c: u8| {
+                    ((c as u32 * a + (*px >> shift & 0xff) * keep) / 255) << shift
+                };
+                let alpha = a + (*px >> 24) * keep / 255;
+                *px = (alpha << 24) | mix(16, color.0) | mix(8, color.1) | mix(0, color.2);
+            }
+        }
+    }
+
     /// Draw an RGB image scaled to `w` x `h`, nearest neighbour, clipped to the
     /// canvas. For window previews: a few thousand pixels, cheap every frame.
     #[allow(clippy::too_many_arguments)]
@@ -295,6 +327,16 @@ mod tests {
         wide.scanlines(128, 4);
         let dark: Vec<u32> = (0..8).filter(|&y| wide.pixel(0, y) & 0xff < 200).collect();
         assert_eq!(dark, [3, 7], "one line in four");
+    }
+
+    #[test]
+    fn a_band_is_brightest_in_the_middle_and_keeps_transparency() {
+        let mut canvas = Canvas::new(1, 9);
+        canvas.clear_transparent();
+        canvas.band(4, 4, Rgb(255, 255, 255), 100);
+        assert_eq!(canvas.pixel(0, 4) >> 24, 100, "peak at the centre");
+        assert!(canvas.pixel(0, 2) >> 24 < 100 && canvas.pixel(0, 2) >> 24 > 0);
+        assert_eq!(canvas.pixel(0, 0), 0, "nothing at the edge");
     }
 
     #[test]
