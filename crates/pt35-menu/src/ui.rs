@@ -2030,7 +2030,7 @@ impl Menu {
     /// The quick panel: a switch, a slider or a readout per row, and the ways
     /// out as ordinary rows: one column, one thing per line.
     /// The window switcher: one card per window, left to right in the same
-    /// order as the taskbar, Launcher first where the skull button is. The
+    /// order as the taskbar, Launcher first where the shutter button is. The
     /// strip scrolls to keep the selected card near the middle.
     fn draw_windows(&mut self, canvas: &mut Canvas, top: i32, bottom: i32) {
         let theme = self.theme.clone();

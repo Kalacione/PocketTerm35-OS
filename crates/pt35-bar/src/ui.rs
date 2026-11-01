@@ -315,7 +315,7 @@ impl App for Bar {
             .find(|(left, right, _)| x >= *left && x < *right)
             .map(|(_, _, action)| *action);
         match hit {
-            // The launcher is a window that is always there: the skull brings it
+            // The launcher is a window that is always there: the shutter brings it
             // to the front and never closes it. You leave it the way you leave
             // any window, for another one.
             Some(Action::Menu) => {

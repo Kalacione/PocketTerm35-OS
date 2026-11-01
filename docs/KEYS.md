@@ -63,7 +63,7 @@ Touch works the same way: tap a row, a tile or a legend pill.
 ## The taskbar
 
 One icon per open window, the focused one filled. Tap one to switch, even with
-the menu up. The skull brings the launcher to the front. The red `x` closes the
+the menu up. The shutter brings the launcher to the front. The red `x` closes the
 focused window.
 
 On the right: input mode, volume, network and the clock. Each is a button. The

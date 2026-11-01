@@ -50,7 +50,7 @@ show_mode     = true     # the BTN / MOUSE readout
 show_clock    = true
 clock_format  = "%H:%M"  # strftime; "%-I:%M %p" for 12-hour
 # clock_size  = 26.0     # with family_display; unset is size_bar
-menu_icon     = "skull"  # skull | bars
+menu_icon     = "skull"  # skull (the shutter) | bars
 dock_labels   = false    # names next to the taskbar icons
 
 [menu]
