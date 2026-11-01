@@ -19,6 +19,7 @@ warning         = "#e8c468"
 critical        = "#ef6b73"
 ok              = "#3ddc97"
 border          = "#254236"
+# tile          = "#1a2620"   # home tiles and panels; unset is background_alt
 
 # Face-button pills in the hint bar, matching the physical buttons.
 button_a        = "#3ddc97"

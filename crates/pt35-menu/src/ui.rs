@@ -1653,14 +1653,7 @@ impl Menu {
         let theme = self.theme.clone();
         let (fw, fh) = (w as u32, h.max(2) as u32);
         let alpha = opacity(theme.menu.tile_opacity);
-        canvas.rect_alpha(
-            x + 1,
-            y + 1,
-            fw - 2,
-            fh - 2,
-            theme.color.background_alt,
-            alpha,
-        );
+        canvas.rect_alpha(x + 1, y + 1, fw - 2, fh - 2, theme.color.tile(), alpha);
         canvas.frame(x, y, fw, fh, theme.color.border);
         let size = theme.font.size_hint * 0.8;
         let tw = self
@@ -1729,7 +1722,7 @@ impl Menu {
             let (face, ink) = if focused {
                 (theme.color.accent, theme.color.accent_fg)
             } else {
-                (theme.color.background_alt, theme.color.foreground)
+                (theme.color.tile(), theme.color.foreground)
             };
             let alpha = opacity(theme.menu.tile_opacity);
             if focused || alpha == 255 {

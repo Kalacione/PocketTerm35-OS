@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u10 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u9 with a colour of its own for
+the home's tiles.
+
+### Added
+
+- `[color] tile`: the face of the home's tiles and panels, the one
+  `[menu] tile_opacity` lets the wallpaper through. Unset is
+  `background_alt`, as before. With a face this close to a dark
+  wallpaper, the Tiles slider changed nothing you could see; a lighter
+  tile makes it visible without lightening every list.
+
 ## 0.4.2+u9 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u8 with framed lists and Quick
