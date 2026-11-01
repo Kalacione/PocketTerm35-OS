@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2+u17 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u16 with a shorter home legend.
+
+### Changed
+
+- The home legend reads Widgets and Apps, not All widgets and All apps.
+  L R reads Flip: it turns the pile of pinned widgets either way.
+
 ## 0.4.2+u16 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u15 with hosts checked again soon
