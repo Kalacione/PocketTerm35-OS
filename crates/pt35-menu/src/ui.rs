@@ -53,6 +53,8 @@ const POPUP_ROW: i32 = 40;
 
 /// How far left of the drawn scrollbar still counts as on it.
 const SCROLLBAR_SLOP: i32 = 12;
+/// Height a launcher tile adds under its icon: the name and the margins.
+const LAUNCHER_LABEL: u32 = 32;
 /// How many of those ticks go by between reads of the daemon.
 const POLL_TICKS: u8 = 4;
 
@@ -541,6 +543,14 @@ impl Menu {
             popup.rects.push((x, top, x + width, top + POPUP_ROW));
         }
         self.popup = Some(popup);
+    }
+
+    /// True when Right moves along the launcher grid rather than out of it.
+    fn launcher_moves_right(&self) -> bool {
+        let list = &self.model.screen().list;
+        let columns = list.columns();
+        let at = list.selected_position();
+        columns > 1 && at % columns + 1 < columns && at + 1 < list.len()
     }
 
     fn on_launcher(&self) -> bool {
@@ -1161,7 +1171,8 @@ impl Menu {
         };
         let theme = &self.theme;
         let total = self.model.screen().list.len().max(1);
-        let visible = self.model.screen().list.rows();
+        let list = &self.model.screen().list;
+        let visible = list.rows() * list.columns();
         let track_h = (bottom - top).max(1) as u32;
         let thumb_h = ((visible as f32 / total as f32) * track_h as f32)
             .max(24.0)
@@ -1387,23 +1398,141 @@ impl Menu {
         }
     }
 
-    /// The launcher: apps down the left, the three screens that are not apps
-    /// down the right.
-    fn draw_launcher(&mut self, canvas: &mut Canvas, top: i32, bottom: i32) {
+    /// The launcher's apps as a grid: a big icon over its name. The picked
+    /// tile is filled in the accent and its icon drawn in `accent_fg`, so the
+    /// selection reads from shape and contrast, not hue.
+    fn draw_app_tiles(
+        &mut self,
+        canvas: &mut Canvas,
+        rows: &[crate::model::Row],
+        top: i32,
+        bottom: i32,
+        split: i32,
+    ) {
         let theme = self.theme.clone();
         let pad = theme.menu.padding_x as i32;
-        // The column runs to the edge: a margin outside it would read as the
-        // list continuing, and 640px has none to spare.
-        let split = canvas.width as i32 - 148;
-        let icon_size = 24;
+        let gap = theme.menu.gap as i32;
+        let bar = theme.menu.scrollbar_width as i32 + 4;
+        let list = &self.model.screen().list;
+        let (columns, lines) = (list.columns() as i32, list.rows() as i32);
+        let cursor = list.cursor_index();
+        let tile_w = (split - pad - bar - gap * columns) / columns;
+        let tile_h = (bottom - top - gap * (lines - 1)) / lines;
+        let icon_size = theme.icons.size_launcher;
+        let size = theme.font.size_hint;
 
-        let rows = self.model.visible_rows();
+        for (index, row) in rows.iter().enumerate() {
+            let x = pad + (index as i32 % columns) * (tile_w + gap);
+            let y = top + (index as i32 / columns) * (tile_h + gap);
+            if y + tile_h > bottom {
+                break;
+            }
+            self.row_hits.push((x, y, x + tile_w, y + tile_h, index));
+            let focused = index == cursor && self.side.is_none();
+            let (face, ink) = if focused {
+                (theme.color.accent, theme.color.accent_fg)
+            } else {
+                (theme.color.background_alt, theme.color.foreground)
+            };
+            let radius = theme.menu.radius;
+            canvas.rounded_rect(
+                x,
+                y,
+                tile_w as u32,
+                tile_h as u32,
+                radius,
+                theme.color.border,
+            );
+            canvas.rounded_rect(
+                x + 1,
+                y + 1,
+                (tile_w - 2) as u32,
+                (tile_h - 2) as u32,
+                radius,
+                face,
+            );
+
+            let ix = x + (tile_w - icon_size as i32) / 2;
+            let iy = y + (tile_h - icon_size as i32 - LAUNCHER_LABEL as i32) / 2 + 4;
+            let name = self.icons.resolve(&[&row.icon], icon_size);
+            let drawn = name
+                .and_then(|name| self.icons.get(&name, icon_size))
+                .map(|icon| {
+                    if focused {
+                        icon.draw_tinted(canvas, ix, iy, ink);
+                    } else {
+                        icon.draw_glow(canvas, ix, iy, theme.icons.glow, theme.color.foreground);
+                        icon.draw(canvas, ix, iy);
+                    }
+                })
+                .is_some();
+            if !drawn {
+                let glyph = if row.glyph.is_empty() {
+                    row.label.chars().next().unwrap_or('?').to_string()
+                } else {
+                    row.glyph.clone()
+                };
+                let big = theme.font.size_title * 2.0;
+                let w = self.font.measure(&glyph, big) as i32;
+                self.font.draw(
+                    canvas,
+                    &glyph,
+                    x + (tile_w - w) / 2,
+                    iy + icon_size as i32 / 2 + (big / 3.0) as i32,
+                    big,
+                    if focused { ink } else { theme.color.muted },
+                );
+            }
+
+            // Running and pinned, in the top corners: the same warnings the
+            // list gives, out of the icon's way.
+            if self.is_running(&row.payload) {
+                canvas.rect(
+                    x + tile_w - 10,
+                    y + 5,
+                    5,
+                    5,
+                    if focused { ink } else { theme.color.accent },
+                );
+            }
+            if row.active {
+                pt35_ui::pixel::draw_centred(
+                    canvas,
+                    pt35_ui::pixel::PIN,
+                    x + 11,
+                    y + 11,
+                    2,
+                    if focused { ink } else { theme.color.accent },
+                );
+            }
+
+            let label = self.font.elide(&row.label, size, (tile_w - 8) as u32);
+            let w = self.font.measure(&label, size) as i32;
+            self.font.draw(
+                canvas,
+                &label,
+                x + (tile_w - w) / 2,
+                iy + icon_size as i32 + 20,
+                size,
+                ink,
+            );
+        }
+    }
+
+    /// The launcher's apps as a list, one row each.
+    fn draw_app_rows(
+        &mut self,
+        canvas: &mut Canvas,
+        rows: &[crate::model::Row],
+        top: i32,
+        bottom: i32,
+        split: i32,
+    ) {
+        let theme = self.theme.clone();
+        let pad = theme.menu.padding_x as i32;
+        let icon_size = 24;
         let cursor = self.model.screen().list.cursor_index();
         let row_h = theme.menu.row_height as i32;
-        self.row_hits.clear();
-        if rows.is_empty() {
-            self.draw_nothing_here(canvas, top, split);
-        }
         if self.side.is_none() && !rows.is_empty() {
             let y = self.motion.glide(top + cursor as i32 * row_h);
             canvas.rect(0, y, split as u32, row_h as u32, theme.color.background_alt);
@@ -1483,6 +1612,26 @@ impl Menu {
                     theme.color.foreground
                 },
             );
+        }
+    }
+
+    /// The launcher: apps down the left, the three screens that are not apps
+    /// down the right.
+    fn draw_launcher(&mut self, canvas: &mut Canvas, top: i32, bottom: i32) {
+        let theme = self.theme.clone();
+        // The column runs to the edge: a margin outside it would read as the
+        // list continuing, and 640px has none to spare.
+        let split = canvas.width as i32 - 148;
+
+        let rows = self.model.visible_rows();
+        self.row_hits.clear();
+        if rows.is_empty() {
+            self.draw_nothing_here(canvas, top, split);
+        }
+        if self.model.screen().list.columns() > 1 {
+            self.draw_app_tiles(canvas, &rows, top, bottom, split);
+        } else {
+            self.draw_app_rows(canvas, &rows, top, bottom, split);
         }
 
         self.draw_scrollbar(canvas, split, top, bottom);
@@ -2289,8 +2438,8 @@ impl App for Menu {
             let mode = self.model.screen().list.mode();
             match (self.side, navigate(&key, mode)) {
                 // Right leaves the app list for the side buttons, left comes
-                // back. Nothing else about the launcher is two-dimensional.
-                (None, Navigation::Right) => {
+                // back. In a grid, only from the last tile of a line.
+                (None, Navigation::Right) if !self.launcher_moves_right() => {
                     self.side = Some(0);
                     return true;
                 }
@@ -2602,6 +2751,12 @@ pub fn run(page: Option<String>) -> Result<()> {
     let tree: pt35_common::menu::MenuTree = tree;
     let root = pt35_common::menu::Builtin::from_name(&tree.root);
     let mut model = Model::sized(tree, None, rows, grid_rows, theme.menu.columns as usize);
+    // A launcher tile is the icon, a line of name and a margin round both.
+    let launcher_tile = theme.icons.size_launcher + LAUNCHER_LABEL + theme.menu.gap;
+    model.launcher_grid(
+        ((body + theme.menu.gap).saturating_sub(12) / launcher_tile.max(1)) as usize,
+        theme.menu.launcher_columns as usize,
+    );
     if let Some(builtin) = root {
         model.set_root_dynamic(
             builtin,

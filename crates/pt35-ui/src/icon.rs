@@ -25,6 +25,8 @@ const SIZES: &[&str] = &[
 pub struct Icon {
     pub size: u32,
     pixels: Vec<u8>,
+    /// The blurred shape behind [`Icon::draw_glow`], by radius. Made once.
+    glow: std::cell::OnceCell<(u32, Vec<u8>)>,
 }
 
 impl Icon {
@@ -48,6 +50,55 @@ impl Icon {
                 canvas.blend(x + col as i32, y + row as i32, a, Rgb(un(r), un(g), un(b)));
             }
         }
+    }
+
+    /// A soft halo of the shape, `radius` pixels wide, for a phosphor screen.
+    /// Draw it first, then the icon over it.
+    pub fn draw_glow(&self, canvas: &mut Canvas, x: i32, y: i32, radius: u32, color: Rgb) {
+        if radius == 0 {
+            return;
+        }
+        let (r, halo) = self.glow.get_or_init(|| (radius, self.blur(radius)));
+        let side = self.size + 2 * r;
+        for row in 0..side {
+            for col in 0..side {
+                let alpha = halo[(row * side + col) as usize];
+                if alpha > 0 {
+                    let (px, py) = (x + col as i32 - *r as i32, y + row as i32 - *r as i32);
+                    canvas.blend(px, py, alpha, color);
+                }
+            }
+        }
+    }
+
+    /// The alpha channel, padded by `radius` and box-blurred twice: close
+    /// enough to a gaussian at this size, and no dependency.
+    fn blur(&self, radius: u32) -> Vec<u8> {
+        let side = (self.size + 2 * radius) as usize;
+        let r = radius as usize;
+        let mut alpha = vec![0f32; side * side];
+        for row in 0..self.size as usize {
+            for col in 0..self.size as usize {
+                let a = self.pixels[(row * self.size as usize + col) * 4 + 3];
+                alpha[(row + r) * side + col + r] = a as f32;
+            }
+        }
+        let window = (2 * r + 1) as f32;
+        for _ in 0..2 {
+            for (step, stride) in [(1, side), (side, 1)] {
+                let source = alpha.clone();
+                for line in 0..side {
+                    for at in 0..side {
+                        let lo = at.saturating_sub(r);
+                        let hi = (at + r).min(side - 1);
+                        let sum: f32 = (lo..=hi).map(|k| source[line * stride + k * step]).sum();
+                        alpha[line * stride + at * step] = sum / window;
+                    }
+                }
+            }
+        }
+        // Half strength: a glow, not a second icon.
+        alpha.iter().map(|a| (a * 0.5) as u8).collect()
     }
 
     /// Draw the shape in one colour. Status icons belong to the theme, not to
@@ -186,6 +237,7 @@ fn render(path: &PathBuf, size: u32) -> Option<Icon> {
     Some(Icon {
         size,
         pixels: pixmap.take(),
+        glow: std::cell::OnceCell::new(),
     })
 }
 
@@ -230,6 +282,29 @@ mod tests {
         assert_eq!(wifi_icon(None), "network-wireless-offline");
         assert_eq!(wifi_icon(Some(10)), "network-wireless-signal-none");
         assert_eq!(wifi_icon(Some(95)), "network-wireless-signal-excellent");
+    }
+
+    #[test]
+    fn the_glow_spreads_past_the_icon() {
+        let mut pixels = vec![0u8; 8 * 8 * 4];
+        for row in 2..6 {
+            for col in 2..6 {
+                pixels[(row * 8 + col) * 4 + 3] = 255;
+            }
+        }
+        let icon = Icon {
+            size: 8,
+            pixels,
+            glow: std::cell::OnceCell::new(),
+        };
+        let halo = icon.blur(3);
+        let side = 14;
+        assert!(
+            halo[7 * side + 7] > halo[7 * side + 3],
+            "strongest under the shape"
+        );
+        assert!(halo[7 * side + 3] > 0, "and past its edge");
+        assert_eq!(halo[0], 0, "but not to the corner");
     }
 
     #[test]

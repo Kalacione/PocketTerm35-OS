@@ -144,6 +144,9 @@ pub struct Menu {
     /// Width of the list's scrollbar. It is a target too: a click on the
     /// track jumps there and a drag moves the list.
     pub scrollbar_width: u32,
+    /// The launcher as a grid this many tiles across: icon above name, at
+    /// `[icons] size_launcher`. 1 keeps the list.
+    pub launcher_columns: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -194,6 +197,10 @@ pub struct IconTheme {
     pub size_bar: u32,
     /// The badge on a menu tile and a dock slot.
     pub size_tile: u32,
+    /// A tile of the launcher grid (`[menu] launcher_columns`).
+    pub size_launcher: u32,
+    /// Width in pixels of the halo under a launcher grid icon. 0 for none.
+    pub glow: u32,
 }
 
 impl Default for IconTheme {
@@ -202,6 +209,8 @@ impl Default for IconTheme {
             theme: "Papirus-Dark".into(),
             size_bar: 18,
             size_tile: 32,
+            size_launcher: 64,
+            glow: 0,
         }
     }
 }
@@ -361,6 +370,7 @@ impl Default for Menu {
             tile_height: 86,
             gap: 10,
             scrollbar_width: 8,
+            launcher_columns: 1,
         }
     }
 }
