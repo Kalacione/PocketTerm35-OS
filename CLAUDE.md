@@ -120,7 +120,10 @@ firmware) and X does too. Matches rank by name prefix, word start, anywhere,
 then letters in order, over the label and the app's id or command. Y pins the
 row: pins sit above the recents, in `~/.local/state/pt35/pinned`.
 
-The home (`launcher_home`) is a widget column and a grid of pins. The column
+The home (`launcher_home`) is a widget column and a grid of pins. B (free
+there: the home has no back) picks up a pin, the D-pad swaps it with its
+neighbour and rewrites `pinned` on each step, A or B drops it. The tile in
+hand gets a thick frame and a MOVE tag, and the legend says Move and Drop. The column
 is two equal panels: the machine on top, then a pile of pinned widgets shown
 one at a time (Network, Media), with its place written as `1/2`. L and R
 flip the pile, and so does a tap on its header. X opens All widgets, where Y

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2+u15 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u14 with pinned tiles that can be
+reordered on the home.
+
+### Added
+
+- On the home, B picks up the pinned tile under the cursor. The D-pad moves
+  it, A or B puts it down. The tile in hand has a thick frame and a MOVE
+  tag, and the legend reads Move and Drop. The order is saved in
+  `~/.local/state/pt35/pinned` at each step.
+
 ## 0.4.2+u14 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u13 with a daemon that restarts

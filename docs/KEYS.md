@@ -42,6 +42,10 @@ motion while a button is down. A real mouse or a finger can drag.
 On the window switcher: left and right move, A switches, B goes back to your
 app, Y and L close one window, X closes all of them (it asks first).
 
+On the home, B picks up the pinned tile under the cursor: a thick frame and
+a MOVE tag mark it. The D-pad moves it, A or B puts it down. The new order is
+saved as it moves.
+
 The launcher never closes from inside. You leave it by picking an app or a
 window, or with Start. With no window open, the menu is the desktop and stays.
 
