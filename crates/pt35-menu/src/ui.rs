@@ -1458,12 +1458,10 @@ impl Menu {
             let drawn = name
                 .and_then(|name| self.icons.get(&name, icon_size))
                 .map(|icon| {
-                    if !focused {
-                        icon.draw_glow(canvas, ix, iy, theme.icons.glow, theme.color.foreground);
-                    }
                     if focused {
                         icon.draw_tinted(canvas, ix, iy, ink);
                     } else {
+                        icon.draw_glow(canvas, ix, iy, theme.icons.glow, theme.color.foreground);
                         icon.draw(canvas, ix, iy);
                     }
                 })
