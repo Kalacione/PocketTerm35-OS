@@ -609,9 +609,13 @@ pub fn quick() -> Items {
         brightness_row(brightness),
     ]);
     // Only with a home: it is the one screen with tiles over a wallpaper.
-    let menu = pt35_common::load_theme().menu;
-    if menu.launcher_home {
-        rows.push(opacity_row(menu.tile_opacity));
+    let theme = pt35_common::load_theme();
+    if theme.menu.launcher_home {
+        rows.push(opacity_row(theme.menu.tile_opacity));
+        // Only where a theme lets it rain at all.
+        if theme.effects.rain > 0 {
+            rows.push(rain_row(theme.effects.rain_speed));
+        }
     }
     rows.extend([
         Item {
@@ -690,6 +694,24 @@ pub fn opacity_row(percent: u8) -> Item {
                 / (100 - TILE_OPACITY_MIN) as u32
         ),
         icon: "preferences-desktop-wallpaper".into(),
+        ..Item::default()
+    }
+}
+
+pub const RAIN_SPEED_MAX: u8 = 4;
+
+pub fn rain_row(speed: u8) -> Item {
+    let speed = speed.min(RAIN_SPEED_MAX);
+    Item {
+        label: "Rain".into(),
+        payload: "adjust:rain_speed".into(),
+        note: if speed == 0 {
+            "off".into()
+        } else {
+            format!("{speed} rows/s")
+        },
+        glyph: format!("slide:{}", speed as u32 * 100 / RAIN_SPEED_MAX as u32),
+        icon: "weather-showers".into(),
         ..Item::default()
     }
 }
@@ -1518,6 +1540,17 @@ pub fn run(bin: &str, args: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rain_slider_reads_off_at_zero_and_stops_at_four() {
+        let off = rain_row(0);
+        assert_eq!((off.note.as_str(), off.glyph.as_str()), ("off", "slide:0"));
+        let top = rain_row(9);
+        assert_eq!(
+            (top.note.as_str(), top.glyph.as_str()),
+            ("4 rows/s", "slide:100")
+        );
+    }
 
     #[test]
     fn apps_and_the_screens_all_apps_lists_can_be_pinned() {
