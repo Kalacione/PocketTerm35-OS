@@ -60,6 +60,7 @@ pub struct Screen {
 pub fn screen(builtin: Builtin) -> Screen {
     let (title, layout, scanning, rows): (_, _, _, fn() -> Items) = match builtin {
         Builtin::Launcher => ("Launcher", Layout::List, None, launcher as fn() -> Items),
+        Builtin::Apps => ("All apps", Layout::List, None, all_apps),
         Builtin::Quick => ("Quick settings", Layout::List, Some("Reading..."), quick),
         Builtin::System => ("System", Layout::List, None, system),
         // One column: the D-pad only goes up and down, and a whole title fits.
@@ -121,7 +122,40 @@ fn brightness_levels() -> Items {
 ///
 /// The payload says what activating a row means: `app:` goes through the
 /// daemon with its profile, `exec:` is a plain command line.
+/// The launcher: every app, or the home of pinned ones when the theme asks.
 fn launcher() -> Items {
+    let menu = pt35_common::load_theme().menu;
+    if menu.launcher_home && menu.launcher_columns > 1 {
+        home()
+    } else {
+        all_apps()
+    }
+}
+
+/// The pinned apps in the order they were pinned, then the screens the side
+/// column would have held. Windows is Select, so it gets no tile.
+fn home() -> Items {
+    let apps = all_apps();
+    let mut out: Items = pins()
+        .iter()
+        .filter_map(|pin| apps.iter().find(|item| &item.payload == pin).cloned())
+        .collect();
+    for (label, payload, icon) in [
+        ("All apps", "screen:apps", "view-app-grid"),
+        ("Settings", "screen:quick", "preferences-system"),
+        ("Power", "page:power", "system-shutdown"),
+    ] {
+        out.push(Item {
+            label: label.into(),
+            payload: payload.into(),
+            icon: icon.into(),
+            ..Item::default()
+        });
+    }
+    out
+}
+
+fn all_apps() -> Items {
     let mut out: Items = Vec::new();
     let apps: pt35_common::apps::AppTable = pt35_common::load_config("pt35/apps.toml");
     let mut programs: Vec<String> = Vec::new();
@@ -336,7 +370,7 @@ fn read_item(label: &str, note: &str, icon: &str) -> Item {
 }
 
 /// Used and total, in kB, the way `free` counts it.
-fn memory() -> Option<(u64, u64)> {
+pub fn memory() -> Option<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let field = |name: &str| -> Option<u64> {
         text.lines()
@@ -371,12 +405,12 @@ fn load_percent() -> Option<u64> {
     Some(((one / cores) * 100.0).min(100.0) as u64)
 }
 
-fn temperature() -> Option<f32> {
+pub fn temperature() -> Option<f32> {
     let raw = std::fs::read_to_string("/sys/class/thermal/thermal_zone0/temp").ok()?;
     Some(raw.trim().parse::<f32>().ok()? / 1000.0)
 }
 
-fn ip_address() -> Option<String> {
+pub fn ip_address() -> Option<String> {
     let out = run("hostname", &["-I"])?;
     out.split_whitespace().next().map(str::to_string)
 }
@@ -1344,7 +1378,7 @@ pub fn parse_pick(pick: &str) -> Option<(&str, &str, toml::Value)> {
 /// because plain C makes nmcli turn "Café" into something you cannot join.
 /// Bounded, so a radio daemon that is not running costs a screen that says
 /// nothing rather than one stuck on "Reading..." for good.
-fn run(bin: &str, args: &[&str]) -> Option<String> {
+pub fn run(bin: &str, args: &[&str]) -> Option<String> {
     pt35_common::proc::output_within(
         Command::new(bin)
             .args(args)

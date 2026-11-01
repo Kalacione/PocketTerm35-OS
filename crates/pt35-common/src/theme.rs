@@ -164,6 +164,10 @@ pub struct Menu {
     /// The launcher as a grid this many tiles across: icon above name, at
     /// `[icons] size_launcher`. 1 keeps the list.
     pub launcher_columns: u32,
+    /// With a grid: the launcher is a home of pinned apps, with a clock and
+    /// the machine's state down the left. All apps, Settings and Power are
+    /// tiles, and the side column goes.
+    pub launcher_home: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -388,6 +392,7 @@ impl Default for Menu {
             gap: 10,
             scrollbar_width: 8,
             launcher_columns: 1,
+            launcher_home: false,
         }
     }
 }

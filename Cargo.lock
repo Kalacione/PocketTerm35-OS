@@ -669,6 +669,7 @@ name = "pt35-menu"
 version = "0.4.2+u2"
 dependencies = [
  "anyhow",
+ "chrono",
  "env_logger",
  "log",
  "pt35-common",
