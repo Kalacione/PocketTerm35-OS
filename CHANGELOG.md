@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.2+u5 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u4 with a display face and visible
+scanlines.
+
+### Added
+
+- `[font] family_display`: a face for the big readouts, the home's clock
+  and the bar's. Empty, the default, is the mono face. `[bar] clock_size`
+  sizes the bar's clock in it.
+- `[effects] glow`: a halo round the home's clock, in pixels.
+- `[effects] scanline_period`: one dark line in this many. 2, the
+  default, is every other line, which a 3.5" panel shows as a dimmer
+  screen rather than lines. Keep the bar height a multiple of it, so the
+  bar's lines meet the menu's.
+- Fonts are looked for in `~/.local/share/fonts` first.
+
+### Changed
+
+- The home has no header: it is the desktop, not a screen with a name.
+  The grid takes the room.
+- A focused dock slot draws its icon in `accent_fg`, like a launcher tile.
+- Quick settings gauges start a third of the way across, or past the
+  label when it is longer.
+
 ## 0.4.2+u4 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u3 with a home of pins only.

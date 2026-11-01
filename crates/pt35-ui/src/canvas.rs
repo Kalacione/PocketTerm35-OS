@@ -8,6 +8,35 @@ pub struct Canvas {
     pixels: Vec<u32>,
 }
 
+/// A soft halo of an alpha mask: padded by `radius` on every side and
+/// box-blurred twice, which is close enough to a gaussian at this size.
+/// Half strength: a glow, not a second copy of the shape.
+pub fn glow_mask(alpha: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
+    let (w, h, r) = (width + 2 * radius, height + 2 * radius, radius);
+    let mut out = vec![0f32; w * h];
+    for row in 0..height {
+        for col in 0..width {
+            out[(row + r) * w + col + r] = alpha[row * width + col] as f32;
+        }
+    }
+    let window = (2 * r + 1) as f32;
+    for _ in 0..2 {
+        // Rows, then columns: (lines, length, step along a line, line stride).
+        for (lines, len, step, stride) in [(h, w, 1, w), (w, h, w, 1)] {
+            let source = out.clone();
+            for line in 0..lines {
+                for at in 0..len {
+                    let lo = at.saturating_sub(r);
+                    let hi = (at + r).min(len - 1);
+                    let sum: f32 = (lo..=hi).map(|k| source[line * stride + k * step]).sum();
+                    out[line * stride + at * step] = sum / window;
+                }
+            }
+        }
+    }
+    out.iter().map(|a| (a * 0.5) as u8).collect()
+}
+
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
@@ -47,15 +76,22 @@ impl Canvas {
             .fill((a << 24) | (premul(color.0) << 16) | (premul(color.1) << 8) | premul(color.2));
     }
 
-    /// Darken every odd line, black at `alpha` over what is there. Odd lines
-    /// of the screen as long as the surface starts on an even one.
-    pub fn scanlines(&mut self, alpha: u8) {
-        if alpha == 0 {
+    /// Darken the last line of every `period`, black at `alpha` over what is
+    /// there. Lines that are already transparent become translucent black,
+    /// so an overlay of nothing but scanlines works.
+    pub fn scanlines(&mut self, alpha: u8, period: u32) {
+        if alpha == 0 || period < 2 {
             return;
         }
         let keep = 255 - alpha as u32;
         let width = self.width as usize;
-        for row in self.pixels.chunks_mut(width).skip(1).step_by(2) {
+        let period = period as usize;
+        for row in self
+            .pixels
+            .chunks_mut(width)
+            .skip(period - 1)
+            .step_by(period)
+        {
             for px in row {
                 // Premultiplied "over": colour and alpha both scale, and the
                 // black adds its own alpha.
@@ -246,14 +282,29 @@ mod tests {
     fn scanlines_darken_every_other_line() {
         let mut canvas = Canvas::new(1, 3);
         canvas.fill(Rgb(200, 200, 200));
-        canvas.scanlines(128);
+        canvas.scanlines(128, 2);
         assert_eq!(canvas.pixel(0, 0), 0xffc8_c8c8, "even lines untouched");
         assert_eq!(canvas.pixel(0, 1) & 0xff, 200 * 127 / 255);
         assert_eq!(canvas.pixel(0, 1) >> 24, 0xff, "still opaque");
         let mut overlay = Canvas::new(1, 2);
         overlay.clear_transparent();
-        overlay.scanlines(64);
+        overlay.scanlines(64, 2);
         assert_eq!(overlay.pixel(0, 1), 64 << 24, "black at the given alpha");
+        let mut wide = Canvas::new(1, 8);
+        wide.fill(Rgb(200, 200, 200));
+        wide.scanlines(128, 4);
+        let dark: Vec<u32> = (0..8).filter(|&y| wide.pixel(0, y) & 0xff < 200).collect();
+        assert_eq!(dark, [3, 7], "one line in four");
+    }
+
+    #[test]
+    fn a_glow_mask_is_padded_and_soft() {
+        let mut alpha = vec![0u8; 9];
+        alpha[4] = 255;
+        let mask = glow_mask(&alpha, 3, 3, 2);
+        assert_eq!(mask.len(), 7 * 7);
+        assert!(mask[3 * 7 + 3] > mask[3 * 7 + 1], "brightest at the centre");
+        assert!(mask[3 * 7 + 3] < 255, "never as strong as the shape");
     }
 
     #[test]

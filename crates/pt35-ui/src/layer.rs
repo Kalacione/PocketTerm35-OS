@@ -149,9 +149,10 @@ pub trait App {
         true
     }
 
-    /// CRT scanlines over the whole frame, as an alpha. 0 draws none.
-    fn scanlines(&self) -> u8 {
-        0
+    /// CRT scanlines over the whole frame: an alpha and a period in lines.
+    /// An alpha of 0 draws none.
+    fn scanlines(&self) -> (u8, u32) {
+        (0, 2)
     }
 
     /// Draw onto a fully transparent surface instead of [`App::background`].
@@ -367,7 +368,8 @@ impl<A: App + 'static> State<A> {
             canvas.fill(self.app.background());
         }
         self.app.draw(&mut canvas);
-        canvas.scanlines(self.app.scanlines());
+        let (alpha, period) = self.app.scanlines();
+        canvas.scanlines(alpha, period);
 
         // SlotPool hands back the whole slot, which may be larger than this
         // buffer needs — it reuses any slot big enough, and the surface shrinks

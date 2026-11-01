@@ -258,6 +258,8 @@ pub struct Menu {
     scrolling: bool,
     /// Drawn under the launcher. `None` keeps the theme's background.
     wallpaper: Option<pt35_ui::wallpaper::Wallpaper>,
+    /// `[font] family_display`, for the clock. None draws it in mono.
+    display: Option<Font>,
 }
 
 /// One window's picture, as pt35d captured it.
@@ -419,6 +421,7 @@ impl Menu {
             cards_drawn: Vec::new(),
             scrolling: false,
             wallpaper: None,
+            display: None,
         }
     }
 
@@ -1440,16 +1443,21 @@ impl Menu {
 
         let now = chrono::Local::now();
         let time = now.format(&theme.bar.clock_format).to_string();
-        let big = 58.0;
-        let tw = self.mono.measure(&time, big) as i32;
+        let (clock, big) = match self.display.as_mut() {
+            // A pixel face like VT323 draws small for its size.
+            Some(display) => (display, 72.0),
+            None => (&mut self.mono, 58.0),
+        };
+        let tw = clock.measure(&time, big) as i32;
         let baseline = top + 26 + (big * 0.72) as i32;
-        self.mono.draw(
+        clock.draw_glow(
             canvas,
             &time,
             x + (w - tw) / 2,
             baseline,
             big,
             theme.color.foreground,
+            theme.effects.glow,
         );
         let date = now.format("%a %d %b %Y").to_string().to_uppercase();
         let dw = self.mono.measure(&date, small) as i32;
@@ -2172,7 +2180,7 @@ impl Menu {
                 );
             }
             let label_x = pad + icon_size as i32 + 12;
-            self.font.draw(
+            let label_end = self.font.draw(
                 canvas,
                 &row.label,
                 label_x,
@@ -2180,6 +2188,8 @@ impl Menu {
                 theme.font.size_menu,
                 theme.color.foreground,
             );
+            // A gauge takes the right two thirds, and never the label.
+            let gauge_x = (canvas.width as i32 / 3).max(label_end + 16);
 
             let right = canvas.width as i32 - pad;
             match row.glyph.split(':').next().unwrap_or("") {
@@ -2218,7 +2228,7 @@ impl Menu {
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(0);
                     let note_w = self.mono.measure(&row.note, theme.font.size_hint) as i32;
-                    let bar_x = label_x + 130;
+                    let bar_x = gauge_x;
                     let bar_w = right - note_w - 12 - bar_x;
                     canvas.rect(bar_x, centre - 5, bar_w as u32, 10, theme.color.border);
                     let filled = bar_w * value.clamp(0, 100) / 100;
@@ -2245,7 +2255,7 @@ impl Menu {
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(0);
                     let note_w = self.mono.measure(&row.note, theme.font.size_hint) as i32;
-                    let track_x = label_x + 130;
+                    let track_x = gauge_x;
                     let track_w = right - note_w - 12 - track_x;
                     canvas.rect(track_x, centre - 2, track_w as u32, 4, theme.color.border);
                     let filled = track_w * value.clamp(0, 100) / 100;
@@ -2463,8 +2473,8 @@ impl Menu {
 }
 
 impl App for Menu {
-    fn scanlines(&self) -> u8 {
-        self.theme.effects.scanline_alpha()
+    fn scanlines(&self) -> (u8, u32) {
+        self.theme.effects.scanline()
     }
 
     fn background(&self) -> Rgb {
@@ -2904,7 +2914,14 @@ impl App for Menu {
         }
         let screen = (self.model.depth(), self.model.screen().title.clone());
         self.motion.screen(screen);
-        let body_top = self.draw_header(canvas) + 8 + self.motion.rise();
+        // The home is the desktop, not a screen with a name: no header.
+        let header = if self.home() {
+            self.crumb_hits.clear();
+            0
+        } else {
+            self.draw_header(canvas)
+        };
+        let body_top = header + 8 + self.motion.rise();
         let quick = matches!(
             self.model.screen().source,
             crate::model::Source::Dynamic {
@@ -2988,6 +3005,7 @@ pub fn run(page: Option<String>) -> Result<()> {
             .join()
             .map_err(|_| anyhow::anyhow!("font loader panicked"))?
     };
+    let display = (!f.family_display.is_empty()).then(|| load(vec![f.family_display.clone()]));
     let (font, mono, bold, mono_bold) = (join(font)?, join(mono)?, join(bold)?, join(mono_bold)?);
     let body = 480u32
         .saturating_sub(theme.bar.height)
@@ -3005,8 +3023,14 @@ pub fn run(page: Option<String>) -> Result<()> {
     let mut model = Model::sized(tree, None, rows, grid_rows, theme.menu.columns as usize);
     // A launcher tile is the icon, a line of name and a margin round both.
     let launcher_tile = theme.icons.size_launcher + LAUNCHER_LABEL + theme.menu.gap;
+    // The home has no header, so its grid gets that height too.
+    let launcher_body = if theme.menu.launcher_home && theme.menu.launcher_columns > 1 {
+        body + theme.menu.header_height
+    } else {
+        body
+    };
     model.launcher_grid(
-        ((body + theme.menu.gap).saturating_sub(12) / launcher_tile.max(1)) as usize,
+        ((launcher_body + theme.menu.gap).saturating_sub(12) / launcher_tile.max(1)) as usize,
         theme.menu.launcher_columns as usize,
     );
     if let Some(builtin) = root {
@@ -3025,6 +3049,8 @@ pub fn run(page: Option<String>) -> Result<()> {
     }
     let mut menu = Menu::new(theme, font, mono, bold, mono_bold, model);
     menu.wallpaper = wallpaper.join().ok().flatten();
+    // A display face that will not load is the mono one, not a dead menu.
+    menu.display = display.and_then(|handle| join(handle).ok());
     // The banner is the only place a broken theme file can say so.
     if let Some(problem) = theme_problems.first() {
         menu.error = Some(format!("Left out {problem}"));
