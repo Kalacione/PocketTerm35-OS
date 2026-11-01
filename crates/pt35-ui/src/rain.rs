@@ -10,11 +10,12 @@ use pt35_common::theme::Rgb;
 use crate::canvas::Canvas;
 use crate::font::Font;
 
-/// Hex, like a memory dump: every mono face has these.
-const GLYPHS: &[char] = &[
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
-];
-const SIZE: f32 = 13.0;
+/// The film's code is mirrored katakana, digits and a few symbols. No face
+/// here has katakana, so capitals, Greek and Cyrillic stand in, half of them
+/// mirrored. A glyph the face lacks is left out: VT323 keeps the digits,
+/// the symbols and the capitals.
+const GLYPHS: &str = "0123456789Z:.\"=*+-<>¦|çΔΘΛΞΠΣΦΨΩλξЖЗИЛПФЦЧШЭЮЯАКМНРТХ";
+const SIZE: f32 = 18.0;
 const CELL: u32 = 16;
 /// Lit cells behind a drop's head, the head included.
 const TRAIL: i64 = 7;
@@ -27,9 +28,9 @@ pub fn scatter(n: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// The lit cells at `step`: column, row, glyph, and brightness out of
-/// `TRAIL`, the head being `TRAIL`.
-fn cells(cols: u32, rows: u32, step: u64) -> impl Iterator<Item = (u32, u32, char, u32)> {
+/// The lit cells at `step`: column, row, a random pick for the glyph, and
+/// brightness out of `TRAIL`, the head being `TRAIL`.
+fn cells(cols: u32, rows: u32, step: u64) -> impl Iterator<Item = (u32, u32, u64, u32)> {
     let rows = rows as i64;
     (0..cols).flat_map(move |col| {
         let seed = scatter(col as u64);
@@ -41,24 +42,39 @@ fn cells(cols: u32, rows: u32, step: u64) -> impl Iterator<Item = (u32, u32, cha
             (0..rows).contains(&row).then(|| {
                 // A glyph stays put while drops pass and changes now and then.
                 let pick = scatter(seed ^ ((row as u64) << 32) ^ ((step + row as u64) / 6));
-                let glyph = GLYPHS[(pick % GLYPHS.len() as u64) as usize];
-                (col, row as u32, glyph, (TRAIL - k) as u32)
+                (col, row as u32, pick, (TRAIL - k) as u32)
             })
         })
     })
 }
 
 /// Draw step `step`. `strength` is the head's brightness, in percent of the
-/// way from `back` to `color`.
-pub fn draw(canvas: &mut Canvas, font: &mut Font, step: u64, strength: u8, color: Rgb, back: Rgb) {
+/// way from `back` to `color`. Only the heads glow, `glow` pixels wide: a
+/// couple of dozen small halos a frame.
+#[allow(clippy::too_many_arguments)]
+pub fn draw(
+    canvas: &mut Canvas,
+    font: &mut Font,
+    step: u64,
+    strength: u8,
+    color: Rgb,
+    back: Rgb,
+    glow: u32,
+) {
     let strength = strength.min(100) as u32;
     if strength == 0 {
         return;
     }
     let (cols, rows) = (canvas.width / CELL, canvas.height / CELL);
     let left = (canvas.width - cols * CELL) as i32 / 2;
+    let glyphs: Vec<char> = GLYPHS.chars().filter(|&c| font.has(c)).collect();
+    if glyphs.is_empty() {
+        return;
+    }
     let mix = |b: u8, c: u8, p: u32| ((b as u32 * (100 - p) + c as u32 * p) / 100) as u8;
-    for (col, row, glyph, level) in cells(cols, rows, step) {
+    for (col, row, pick, level) in cells(cols, rows, step) {
+        let glyph = glyphs[(pick % glyphs.len() as u64) as usize];
+        let mirror = pick >> 63 == 1;
         let p = strength * level / TRAIL as u32;
         let ink = Rgb(
             mix(back.0, color.0, p),
@@ -68,7 +84,8 @@ pub fn draw(canvas: &mut Canvas, font: &mut Font, step: u64, strength: u8, color
         let x = left + (col * CELL) as i32;
         // `draw` takes a baseline.
         let y = ((row + 1) * CELL) as i32 - 3;
-        font.draw(canvas, glyph.encode_utf8(&mut [0; 4]), x, y, SIZE, ink);
+        let halo = if level == TRAIL as u32 { glow } else { 0 };
+        font.draw_char(canvas, glyph, x, y, SIZE, ink, mirror, halo);
     }
 }
 

@@ -200,6 +200,56 @@ impl Font {
         (pen - tracking).ceil() as i32
     }
 
+    /// Whether this face has `ch`, rather than drawing its empty box.
+    pub fn has(&self, ch: char) -> bool {
+        self.inner.lookup_glyph_index(ch) != 0
+    }
+
+    /// One glyph, flipped left to right when `mirror`, over a halo `glow`
+    /// pixels wide when that is not 0.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_char(
+        &mut self,
+        canvas: &mut Canvas,
+        ch: char,
+        x: i32,
+        y: i32,
+        size: f32,
+        color: Rgb,
+        mirror: bool,
+        glow: u32,
+    ) {
+        let (metrics, mut alpha) = self.glyph(ch, size).clone();
+        let (width, height) = (metrics.width, metrics.height);
+        if width == 0 {
+            return;
+        }
+        if mirror {
+            for row in alpha.chunks_mut(width) {
+                row.reverse();
+            }
+        }
+        let gx = if mirror {
+            x + metrics.advance_width as i32 - metrics.xmin - width as i32
+        } else {
+            x + metrics.xmin
+        };
+        let gy = y - height as i32 - metrics.ymin;
+        if glow > 0 {
+            let r = glow as usize;
+            let halo = crate::canvas::glow_mask(&alpha, width, height, r);
+            let side = width + 2 * r;
+            for (i, &a) in halo.iter().enumerate() {
+                let (col, row) = ((i % side) as i32, (i / side) as i32);
+                canvas.blend(gx + col - r as i32, gy + row - r as i32, a, color);
+            }
+        }
+        for (i, &coverage) in alpha.iter().enumerate() {
+            let (col, row) = ((i % width) as i32, (i / width) as i32);
+            canvas.blend(gx + col, gy + row, coverage, color);
+        }
+    }
+
     /// Shorten `text` with an ellipsis so it fits in `max_width` pixels.
     pub fn elide(&mut self, text: &str, size: f32, max_width: u32) -> String {
         if self.measure(text, size) <= max_width {
@@ -241,6 +291,27 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn a_mirrored_glyph_is_the_same_ink_flipped() {
+        let Some(mut font) = test_font() else {
+            return;
+        };
+        let ink = |font: &mut Font, mirror| {
+            let mut canvas = Canvas::new(24, 24);
+            font.draw_char(&mut canvas, 'L', 4, 20, 16.0, Rgb(255, 255, 255), mirror, 0);
+            canvas
+        };
+        let (plain, flipped) = (ink(&mut font, false), ink(&mut font, true));
+        let lit = |c: &Canvas| {
+            (0..24)
+                .flat_map(|x| (0..24).map(move |y| (x, y)))
+                .filter(|&(x, y)| c.pixel(x, y) & 0xff > 0)
+                .count()
+        };
+        assert_eq!(lit(&plain), lit(&flipped));
+        assert!((0..24).any(|x| (0..24).any(|y| plain.pixel(x, y) != flipped.pixel(x, y))));
     }
 
     #[test]
