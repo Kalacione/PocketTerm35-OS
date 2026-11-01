@@ -73,6 +73,9 @@ gap           = 10
 scrollbar_width = 8      # also a target: click the track, drag the thumb
 launcher_columns = 1     # 2 or more: the launcher is a grid of big icons
 
+[effects]
+scanlines     = 0        # CRT lines, % darker; pt35-bar --scanlines covers apps
+
 # GTK and Qt apps. dark | light | keep (leave the desktop settings alone).
 # Applied through gsettings at login and on reload; Qt follows GTK.
 [apps]

@@ -13,6 +13,23 @@ pub struct Theme {
     pub buttons: Buttons,
     pub icons: IconTheme,
     pub apps: Apps,
+    pub effects: Effects,
+}
+
+/// Looks that cost a little on every frame. All off by default.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Effects {
+    /// CRT scanlines on the bar and the menu: every other line darkened by
+    /// this many percent. `pt35-bar --scanlines` lays them over the apps too.
+    pub scanlines: u8,
+}
+
+impl Effects {
+    /// The scanline darkness as an alpha.
+    pub fn scanline_alpha(&self) -> u8 {
+        (self.scanlines.min(100) as u32 * 255 / 100) as u8
+    }
 }
 
 /// How GTK and Qt apps are drawn. The shell is dark; an app in the Pi's light

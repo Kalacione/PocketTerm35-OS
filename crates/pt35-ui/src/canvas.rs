@@ -47,6 +47,25 @@ impl Canvas {
             .fill((a << 24) | (premul(color.0) << 16) | (premul(color.1) << 8) | premul(color.2));
     }
 
+    /// Darken every odd line, black at `alpha` over what is there. Odd lines
+    /// of the screen as long as the surface starts on an even one.
+    pub fn scanlines(&mut self, alpha: u8) {
+        if alpha == 0 {
+            return;
+        }
+        let keep = 255 - alpha as u32;
+        let width = self.width as usize;
+        for row in self.pixels.chunks_mut(width).skip(1).step_by(2) {
+            for px in row {
+                // Premultiplied "over": colour and alpha both scale, and the
+                // black adds its own alpha.
+                let channel = |shift: u32| ((*px >> shift & 0xff) * keep / 255) << shift;
+                let a = alpha as u32 + (*px >> 24) * keep / 255;
+                *px = (a << 24) | channel(16) | channel(8) | channel(0);
+            }
+        }
+    }
+
     pub fn rect(&mut self, x: i32, y: i32, w: u32, h: u32, color: Rgb) {
         let argb = color.to_argb8888();
         // Clamped both ways: a rect that starts past the right edge must come
@@ -221,6 +240,20 @@ mod tests {
         canvas.blend(-1, 0, 255, Rgb(0xff, 0, 0));
         canvas.blend(0, 9, 255, Rgb(0xff, 0, 0));
         assert_eq!(canvas.pixel(0, 0), 0xff00_0000);
+    }
+
+    #[test]
+    fn scanlines_darken_every_other_line() {
+        let mut canvas = Canvas::new(1, 3);
+        canvas.fill(Rgb(200, 200, 200));
+        canvas.scanlines(128);
+        assert_eq!(canvas.pixel(0, 0), 0xffc8_c8c8, "even lines untouched");
+        assert_eq!(canvas.pixel(0, 1) & 0xff, 200 * 127 / 255);
+        assert_eq!(canvas.pixel(0, 1) >> 24, 0xff, "still opaque");
+        let mut overlay = Canvas::new(1, 2);
+        overlay.clear_transparent();
+        overlay.scanlines(64);
+        assert_eq!(overlay.pixel(0, 1), 64 << 24, "black at the given alpha");
     }
 
     #[test]

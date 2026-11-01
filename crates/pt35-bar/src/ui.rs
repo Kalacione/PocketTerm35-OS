@@ -221,6 +221,10 @@ fn now(theme: &Theme) -> String {
 }
 
 impl App for Bar {
+    fn scanlines(&self) -> u8 {
+        self.theme.effects.scanline_alpha()
+    }
+
     fn background(&self) -> pt35_common::theme::Rgb {
         self.theme.color.background
     }
@@ -552,6 +556,30 @@ impl App for Bar {
             }
         }
     }
+}
+
+/// Scanlines over the apps: a surface that only draws them and takes no
+/// input. The bar and the menu draw their own, being above it.
+struct Scanlines(u8);
+
+impl App for Scanlines {
+    fn draw(&mut self, _canvas: &mut Canvas) {}
+
+    fn scanlines(&self) -> u8 {
+        self.0
+    }
+
+    fn transparent(&self) -> bool {
+        true
+    }
+}
+
+pub fn run_scanlines() -> Result<()> {
+    let alpha = pt35_common::load_theme().effects.scanline_alpha();
+    if alpha == 0 {
+        return Ok(());
+    }
+    layer::run(Scanlines(alpha), SurfaceSpec::decoration("pt35-scanlines"))
 }
 
 pub fn run() -> Result<()> {

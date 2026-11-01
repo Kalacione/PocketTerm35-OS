@@ -2,7 +2,7 @@
 
 ## 0.4.2+u2 (2026-11-01)
 
-PocketTerm 3.5 Unleashed build: 0.4.2+u1 plus a launcher grid.
+PocketTerm 3.5 Unleashed build: 0.4.2+u1 plus a launcher grid and screen effects.
 
 ### Added
 
@@ -13,6 +13,10 @@ PocketTerm 3.5 Unleashed build: 0.4.2+u1 plus a launcher grid.
   keeps the list.
 - `[icons] glow`: a soft halo under each grid icon, in pixels. 0, the
   default, draws none.
+- `[effects] scanlines`: CRT lines on the bar and the menu, every other
+  line darker by this many percent. `pt35-bar --scanlines` lays them over
+  the apps as a click-through overlay below the bar; start it from your
+  sway config. 0, the default, draws none.
 
 ### Fixed
 

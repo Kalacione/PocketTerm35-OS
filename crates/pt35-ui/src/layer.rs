@@ -85,6 +85,15 @@ impl SurfaceSpec {
         }
     }
 
+    /// A transparent overlay that takes no input at all, below the bar.
+    pub fn decoration(namespace: &'static str) -> Self {
+        Self {
+            keyboard: false,
+            passthrough: true,
+            ..Self::overlay(namespace)
+        }
+    }
+
     /// A transparent, click-through overlay that still takes the keyboard:
     /// what `pt35-pointer` draws its grid on.
     pub fn passthrough_overlay(namespace: &'static str) -> Self {
@@ -138,6 +147,11 @@ pub trait App {
     /// One wheel step, `down` or up.
     fn scroll(&mut self, _down: bool) -> bool {
         true
+    }
+
+    /// CRT scanlines over the whole frame, as an alpha. 0 draws none.
+    fn scanlines(&self) -> u8 {
+        0
     }
 
     /// Draw onto a fully transparent surface instead of [`App::background`].
@@ -353,6 +367,7 @@ impl<A: App + 'static> State<A> {
             canvas.fill(self.app.background());
         }
         self.app.draw(&mut canvas);
+        canvas.scanlines(self.app.scanlines());
 
         // SlotPool hands back the whole slot, which may be larger than this
         // buffer needs — it reuses any slot big enough, and the surface shrinks
