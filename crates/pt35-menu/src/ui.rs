@@ -1091,6 +1091,12 @@ impl Menu {
                 x += 22;
             }
             let centre = y + row_h / 2;
+            let framed = theme.menu.row_frames && has_icons;
+            if framed {
+                let colour = if selected { fg } else { theme.color.border };
+                canvas.frame(x, centre - 16, 32, 32, colour);
+                x += 4;
+            }
             if let Some(swatch) = row.tint {
                 canvas.rounded_rect(x, centre - 10, 20, 20, radius, fg);
                 canvas.rounded_rect(x + 2, centre - 8, 16, 16, radius, swatch);
@@ -1121,7 +1127,7 @@ impl Menu {
             }
             // Indented on every row or none, so labels stay in one column.
             if has_icons {
-                x += icon_size as i32 + 12;
+                x += icon_size as i32 + if framed { 16 } else { 12 };
             }
 
             // Quick settings read out their value on the right, where the
@@ -2188,13 +2194,24 @@ impl Menu {
             return;
         }
 
-        let row_h = ((bottom - top - 8) / rows.len().max(1) as i32).min(56);
+        // Framed, the panel is a list like any other: its rows, its pill.
+        let framed = theme.menu.row_frames;
+        let row_h = if framed {
+            theme.menu.row_height as i32
+        } else {
+            ((bottom - top - 8) / rows.len().max(1) as i32).min(56)
+        };
         let icon_size = 24;
         let readonly = self.readonly();
         if !readonly {
             let y = self.motion.glide(top + cursor as i32 * row_h);
-            canvas.rect(0, y, canvas.width, row_h as u32, theme.color.background_alt);
-            canvas.rect(0, y, 3, row_h as u32, theme.color.accent);
+            if framed {
+                let (w, h) = (canvas.width - pad as u32, (row_h - 6) as u32);
+                canvas.rounded_rect(pad / 2, y + 3, w, h, theme.menu.radius, theme.color.accent);
+            } else {
+                canvas.rect(0, y, canvas.width, row_h as u32, theme.color.background_alt);
+                canvas.rect(0, y, 3, row_h as u32, theme.color.accent);
+            }
         }
 
         for (index, row) in rows.iter().enumerate() {
@@ -2203,32 +2220,49 @@ impl Menu {
             self.row_hits
                 .push((0, y, canvas.width as i32, y + row_h, index));
             let centre = y + row_h / 2;
-            if let Some(icon) = self.icons.get_symbolic(&row.icon, icon_size) {
-                icon.draw_tinted(
-                    canvas,
-                    pad,
-                    centre - icon_size as i32 / 2,
-                    if focused {
-                        theme.color.accent
-                    } else {
-                        theme.color.muted
-                    },
-                );
+            // On the framed pill, everything takes the pill's ink.
+            let inked = framed && focused;
+            let (fg, dim, lit) = if inked {
+                let ink = theme.color.accent_fg;
+                (ink, ink, ink)
+            } else {
+                (
+                    theme.color.foreground,
+                    theme.color.muted,
+                    theme.color.accent,
+                )
+            };
+            if framed {
+                let colour = if inked { fg } else { theme.color.border };
+                canvas.frame(pad - 4, centre - 16, 32, 32, colour);
+                if !focused && index + 1 < rows.len() {
+                    let w = canvas.width - 2 * pad as u32;
+                    canvas.rect(pad, y + row_h - 1, w, 1, theme.color.border);
+                }
             }
-            let label_x = pad + icon_size as i32 + 12;
+            if let Some(icon) = self.icons.get_symbolic(&row.icon, icon_size) {
+                let tint = if focused { lit } else { theme.color.muted };
+                icon.draw_tinted(canvas, pad, centre - icon_size as i32 / 2, tint);
+            }
+            let label_x = pad + icon_size as i32 + if framed { 16 } else { 12 };
             let label_end = self.font.draw(
                 canvas,
                 &row.label,
                 label_x,
                 centre + (theme.font.size_menu / 3.0) as i32,
                 theme.font.size_menu,
-                theme.color.foreground,
+                fg,
             );
             // A gauge takes the right two thirds, and never the label.
             let gauge_x = (canvas.width as i32 / 3).max(label_end + 16);
 
             let right = canvas.width as i32 - pad;
             match row.glyph.split(':').next().unwrap_or("") {
+                "switch" if framed => {
+                    let on = row.glyph.ends_with("on");
+                    let x = self.draw_toggle(canvas, right, centre, on);
+                    self.note(canvas, &row.note, x - 10, centre, dim);
+                }
                 "switch" => {
                     let on = row.glyph.ends_with("on");
                     let w = 62;
@@ -2254,7 +2288,7 @@ impl Menu {
                             theme.color.muted
                         },
                     );
-                    self.note(canvas, &row.note, x - 10, centre);
+                    self.note(canvas, &row.note, x - 10, centre, dim);
                 }
                 "bar" => {
                     let value: i32 = row
@@ -2271,7 +2305,7 @@ impl Menu {
                     let colour = match value {
                         85..=100 => theme.color.critical,
                         60..=84 => theme.color.warning,
-                        _ => theme.color.accent,
+                        _ => lit,
                     };
                     canvas.rect(bar_x, centre - 5, filled as u32, 10, colour);
                     self.mono.draw(
@@ -2280,7 +2314,7 @@ impl Menu {
                         right - note_w,
                         centre + 5,
                         theme.font.size_hint,
-                        theme.color.foreground,
+                        fg,
                     );
                 }
                 "slide" => {
@@ -2295,33 +2329,22 @@ impl Menu {
                     let track_w = right - note_w - 12 - track_x;
                     canvas.rect(track_x, centre - 2, track_w as u32, 4, theme.color.border);
                     let filled = track_w * value.clamp(0, 100) / 100;
-                    canvas.rect(track_x, centre - 2, filled as u32, 4, theme.color.accent);
-                    canvas.rounded_rect(
-                        track_x + filled - 4,
-                        centre - 9,
-                        8,
-                        18,
-                        2,
-                        theme.color.accent,
-                    );
+                    canvas.rect(track_x, centre - 2, filled as u32, 4, lit);
+                    canvas.rounded_rect(track_x + filled - 4, centre - 9, 8, 18, 2, lit);
                     self.mono.draw(
                         canvas,
                         &row.note,
                         right - note_w,
                         centre + 5,
                         theme.font.size_hint,
-                        theme.color.foreground,
+                        fg,
                     );
                 }
                 // A row that leads somewhere says so, the same way a submenu
                 // row in a plain list does.
                 "nav" => {
                     let size = theme.font.size_menu;
-                    let colour = if focused {
-                        theme.color.accent
-                    } else {
-                        theme.color.muted
-                    };
+                    let colour = if focused { lit } else { dim };
                     let w = self.font.measure(">", size) as i32;
                     self.font.draw(
                         canvas,
@@ -2332,9 +2355,9 @@ impl Menu {
                         colour,
                     );
                 }
-                _ => self.note(canvas, &row.note, right, centre),
+                _ => self.note(canvas, &row.note, right, centre, dim),
             }
-            if readonly && index + 1 < rows.len() {
+            if readonly && !framed && index + 1 < rows.len() {
                 canvas.rect(
                     pad,
                     y + row_h - 1,
@@ -2348,20 +2371,48 @@ impl Menu {
     }
 
     /// Right-aligned readout next to a switch.
-    fn note(&mut self, canvas: &mut Canvas, note: &str, right: i32, centre: i32) {
+    fn note(&mut self, canvas: &mut Canvas, note: &str, right: i32, centre: i32, colour: Rgb) {
         if note.is_empty() {
             return;
         }
         let size = self.theme.font.size_hint;
         let width = self.mono.measure(note, size) as i32;
-        self.mono.draw(
-            canvas,
-            note,
-            right - width,
-            centre + 5,
-            size,
-            self.theme.color.muted,
+        self.mono
+            .draw(canvas, note, right - width, centre + 5, size, colour);
+    }
+
+    /// A toggle switch ending at `right`: a knob at the off or the on end, and
+    /// the state written in the free half as 0 or 1, so it never rests on
+    /// colour alone. Returns its left edge.
+    fn draw_toggle(&mut self, canvas: &mut Canvas, right: i32, centre: i32, on: bool) -> i32 {
+        let (w, h) = (52, 26);
+        let (x, y) = (right - w, centre - h / 2);
+        let theme = &self.theme;
+        let (fill, ink) = if on {
+            (theme.color.ok, theme.color.ok.ink())
+        } else {
+            (theme.color.border, theme.color.muted)
+        };
+        canvas.rect(x, y, w as u32, h as u32, fill);
+        let knob_w = 23;
+        let knob_x = if on { x + w - knob_w - 3 } else { x + 3 };
+        canvas.rect(
+            knob_x,
+            y + 3,
+            knob_w as u32,
+            (h - 6) as u32,
+            theme.color.background,
         );
+        let text = if on { "1" } else { "0" };
+        let free = if on { x } else { x + knob_w + 3 };
+        let (face, size) = match self.display.as_mut() {
+            Some(display) => (display, 24.0),
+            None => (&mut self.mono_bold, 16.0),
+        };
+        let tw = face.measure(text, size) as i32;
+        let half = w - knob_w - 3;
+        face.draw(canvas, text, free + (half - tw) / 2, centre + 7, size, ink);
+        x
     }
 
     fn draw_hints(&mut self, canvas: &mut Canvas, top: i32) {
@@ -3106,6 +3157,7 @@ pub fn run(page: Option<String>) -> Result<()> {
         ((launcher_body + theme.menu.gap).saturating_sub(12) / launcher_tile.max(1)) as usize,
         theme.menu.launcher_columns as usize,
     );
+    model.quick_scrolls(theme.menu.row_frames);
     if let Some(builtin) = root {
         model.set_root_dynamic(
             builtin,

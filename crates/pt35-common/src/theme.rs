@@ -207,6 +207,9 @@ pub struct Menu {
     pub tile_opacity: u8,
     /// The legend's buttons as square keys, each with its action in a frame.
     pub hint_frames: bool,
+    /// List icons in a square frame, and Quick settings drawn like any list:
+    /// full rows that scroll, the list's selection, switches as 0 / 1.
+    pub row_frames: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -436,6 +439,7 @@ impl Default for Menu {
             launcher_home: false,
             tile_opacity: 100,
             hint_frames: false,
+            row_frames: false,
         }
     }
 }

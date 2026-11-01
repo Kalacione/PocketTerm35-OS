@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2+u9 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: framed lists and Quick settings as a
+list.
+
+### Added
+
+- `[menu] row_frames`: list icons sit in a square frame. Quick settings
+  is then drawn like any list: full rows that scroll, the list's
+  selection with its ink, hairlines between rows, and switches as a
+  knob with the state written as 0 or 1 beside it, in the display face
+  when there is one. Off by default.
+
 ## 0.4.2+u7 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u6 with a new menu mark.
