@@ -60,7 +60,7 @@ pub struct Screen {
 pub fn screen(builtin: Builtin) -> Screen {
     let (title, layout, scanning, rows): (_, _, _, fn() -> Items) = match builtin {
         Builtin::Launcher => ("Launcher", Layout::List, None, launcher as fn() -> Items),
-        Builtin::Apps => ("All apps", Layout::List, None, all_apps),
+        Builtin::Apps => ("All apps", Layout::List, None, apps),
         Builtin::Quick => ("Quick settings", Layout::List, Some("Reading..."), quick),
         Builtin::System => ("System", Layout::List, None, system),
         // One column: the D-pad only goes up and down, and a whole title fits.
@@ -132,16 +132,22 @@ fn launcher() -> Items {
     }
 }
 
-/// The pinned apps in the order they were pinned, then the screens the side
-/// column would have held. Windows is Select, so it gets no tile.
+/// The pinned entries, in the order they were pinned, and nothing else. Y
+/// opens the list of everything.
 fn home() -> Items {
-    let apps = all_apps();
-    let mut out: Items = pins()
+    let all = apps();
+    pins()
         .iter()
-        .filter_map(|pin| apps.iter().find(|item| &item.payload == pin).cloned())
-        .collect();
+        .filter_map(|pin| all.iter().find(|item| &item.payload == pin).cloned())
+        .collect()
+}
+
+/// All apps: every app, then Settings and Power, which the side column held
+/// before the home replaced it. They pin like an app. Windows is Select.
+fn apps() -> Items {
+    let pinned = pins();
+    let mut out = all_apps();
     for (label, payload, icon) in [
-        ("All apps", "screen:apps", "view-app-grid"),
         ("Settings", "screen:quick", "preferences-system"),
         ("Power", "page:power", "system-shutdown"),
     ] {
@@ -149,10 +155,18 @@ fn home() -> Items {
             label: label.into(),
             payload: payload.into(),
             icon: icon.into(),
+            active: pinned.iter().any(|p| p == payload),
             ..Item::default()
         });
     }
     out
+}
+
+/// Whether a launcher row can be pinned: an app, or a screen All apps lists.
+pub fn pinnable(payload: &str) -> bool {
+    ["app:", "exec:", "screen:", "page:"]
+        .iter()
+        .any(|kind| payload.starts_with(kind))
 }
 
 fn all_apps() -> Items {
@@ -1391,6 +1405,16 @@ pub fn run(bin: &str, args: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apps_and_the_screens_all_apps_lists_can_be_pinned() {
+        assert!(pinnable("app:terminal"));
+        assert!(pinnable("exec:htop"));
+        assert!(pinnable("screen:quick"));
+        assert!(pinnable("page:power"));
+        assert!(!pinnable("con:42"));
+        assert!(!pinnable(""));
+    }
 
     #[test]
     fn the_last_thing_you_opened_is_at_the_top() {

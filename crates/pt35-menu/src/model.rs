@@ -656,9 +656,7 @@ impl Model {
                     Some(Builtin::Launcher | Builtin::Apps)
                 ) {
                     return match self.selected_payload() {
-                        Some(p) if p.starts_with("app:") || p.starts_with("exec:") => {
-                            Step::TogglePin(p.to_string())
-                        }
+                        Some(p) if crate::providers::pinnable(p) => Step::TogglePin(p.to_string()),
                         _ => Step::Nothing,
                     };
                 }

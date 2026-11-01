@@ -11,10 +11,10 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 mod exec;
-mod home;
 mod live;
 mod model;
 mod providers;
+mod widgets;
 
 #[cfg(target_os = "linux")]
 mod ui;

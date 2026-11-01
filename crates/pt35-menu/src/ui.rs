@@ -53,8 +53,8 @@ const POPUP_ROW: i32 = 40;
 
 /// How far left of the drawn scrollbar still counts as on it.
 const SCROLLBAR_SLOP: i32 = 12;
-/// Width of the home column: the clock, the machine, the network.
-const HOME_WIDTH: i32 = 216;
+/// Width of the widget column: the clock, the machine, the network.
+const WIDGET_WIDTH: i32 = 216;
 /// Height a launcher tile adds under its icon: the name and the margins.
 const LAUNCHER_LABEL: u32 = 32;
 /// How many of those ticks go by between reads of the daemon.
@@ -242,8 +242,8 @@ pub struct Menu {
     hover_sent: Option<i64>,
     /// Whether pt35d was last told the launcher is in front.
     launcher_sent: Option<(bool, Option<String>)>,
-    /// The machine and the network, for the home column.
-    readings: crate::home::Readings,
+    /// The machine and the network, for the widget column.
+    readings: crate::widgets::Readings,
     /// A Bluetooth scan is running until then; the list is re-read meanwhile.
     scan_until: Option<std::time::Instant>,
     /// Switcher previews read so far, by window id, with the file's mtime so
@@ -412,7 +412,7 @@ impl Menu {
             motion: Motion::new(theme_animations),
             hover_sent: None,
             launcher_sent: None,
-            readings: crate::home::Readings::default(),
+            readings: crate::widgets::Readings::default(),
             scan_until: None,
             previews: std::collections::HashMap::new(),
             bad_previews: std::collections::HashMap::new(),
@@ -473,19 +473,28 @@ impl Menu {
     fn pin_target(&self) -> Option<String> {
         let filtering = self.model.screen().list.mode() == Mode::Filter;
         let all_apps = self.model.dynamic_builtin() == Some(pt35_common::menu::Builtin::Apps);
-        let top = self.on_launcher() && self.model.depth() == 1;
+        // On the home, Y opens All apps: pins are made and undone there.
+        let top = self.on_launcher() && self.model.depth() == 1 && !self.home();
         if !(top || all_apps) || filtering || self.side.is_some() {
             return None;
         }
         self.model
             .selected_payload()
-            .filter(|p| p.starts_with("app:") || p.starts_with("exec:"))
+            .filter(|p| {
+                all_apps && providers::pinnable(p)
+                    || p.starts_with("app:")
+                    || p.starts_with("exec:")
+            })
             .map(str::to_string)
     }
 
     /// What a right click on the selected row offers, as a label and the
     /// button that does it. Empty when a plain click is all the row has.
     fn row_options(&self) -> Vec<(&'static str, &'static str)> {
+        // In Mouse mode Y is the wheel: All apps is reached from here.
+        if self.home() {
+            return vec![("Open", "A"), ("All apps", "Y")];
+        }
         if let Some(payload) = self.pin_target() {
             let pinned = crate::providers::pins().contains(&payload);
             return vec![("Open", "A"), (if pinned { "Unpin" } else { "Pin" }, "Y")];
@@ -1419,12 +1428,12 @@ impl Menu {
         }
     }
 
-    /// The home column: the time and the machine on one panel, the network
+    /// The widget column: the time and the machine on one panel, the network
     /// on the other, as on a deck's status screen.
-    fn draw_home(&mut self, canvas: &mut Canvas, x: i32, top: i32, bottom: i32) {
+    fn draw_widgets(&mut self, canvas: &mut Canvas, x: i32, top: i32, bottom: i32) {
         let theme = self.theme.clone();
         let gap = theme.menu.gap as i32;
-        let w = HOME_WIDTH;
+        let w = WIDGET_WIDTH;
         let small = theme.font.size_hint;
         let system_h = (bottom - top - gap) * 11 / 20;
         self.draw_panel(canvas, x, top, w, system_h, "SYSTEM");
@@ -1517,14 +1526,18 @@ impl Menu {
         }
         if let Some((down, up)) = self.readings.rates {
             y += 24;
-            let text = format!("↓ {}  ↑ {}", crate::home::rate(down), crate::home::rate(up));
+            let text = format!(
+                "↓ {}  ↑ {}",
+                crate::widgets::rate(down),
+                crate::widgets::rate(up)
+            );
             let text = self.mono.elide(&text, small, (w - 24) as u32);
             self.mono
                 .draw(canvas, &text, x + 12, y, small, theme.color.foreground);
         }
     }
 
-    /// A panel of the home column: a flat surface with its name on a tab.
+    /// A panel of the widget column: a flat surface with its name on a tab.
     fn draw_panel(&mut self, canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, title: &str) {
         let theme = self.theme.clone();
         canvas.rect(x, y, w as u32, h.max(0) as u32, theme.color.border);
@@ -1798,9 +1811,16 @@ impl Menu {
         self.row_hits.clear();
         if self.home() {
             let pad = theme.menu.padding_x as i32;
-            let column = pad + HOME_WIDTH;
-            self.draw_home(canvas, pad, top, bottom);
+            let column = pad + WIDGET_WIDTH;
+            self.draw_widgets(canvas, pad, top, bottom);
             let right = canvas.width as i32;
+            if rows.is_empty() {
+                let size = theme.font.size_hint;
+                let text = "Nothing pinned yet. Y: All apps.";
+                let x = column + theme.menu.gap as i32;
+                self.font
+                    .draw(canvas, text, x, top + 40, size, theme.color.muted);
+            }
             self.draw_app_tiles(
                 canvas,
                 &rows,
@@ -2369,6 +2389,13 @@ impl Menu {
         let mut hints = hints;
         // Y on a launcher row pins it: the one thing Y is free for at the top.
         // In Mouse mode Y is the wheel: a right click pins, from its menu.
+        if self.home() && !mouse {
+            hints.retain(|hint| hint.button != "Y");
+            hints.push(Hint {
+                button: "Y",
+                action: "All apps",
+            });
+        }
         if !mouse && self.pin_target().is_some() {
             // Not also Home: Y does one thing per screen.
             hints.retain(|hint| hint.button != "Y");
@@ -2510,7 +2537,7 @@ impl App for Menu {
             }
         }
         self.since_poll += 1;
-        // The home column fills in on the first tick, not before the first
+        // The widget column fills in on the first tick, not before the first
         // frame, then moves with the poll.
         let home_due = !self.readings.sampled() || self.since_poll >= POLL_TICKS;
         if self.home() && home_due {
@@ -2643,6 +2670,11 @@ impl App for Menu {
         if self.home() {
             let mode = self.model.screen().list.mode();
             match navigate(&key, mode) {
+                // Y is the way to every app, where pins are made.
+                Navigation::Secondary => {
+                    self.open_here(pt35_common::menu::Builtin::Apps);
+                    return true;
+                }
                 // A search is of every app, not of the pins.
                 Navigation::StartFilter => {
                     self.open_here(pt35_common::menu::Builtin::Apps);
