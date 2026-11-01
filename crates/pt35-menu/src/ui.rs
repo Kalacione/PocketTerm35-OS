@@ -250,6 +250,8 @@ pub struct Menu {
     cards_drawn: Vec<i64>,
     /// A drag that began on the scrollbar, until the button or finger lifts.
     scrolling: bool,
+    /// Drawn under the launcher. `None` keeps the theme's background.
+    wallpaper: Option<pt35_ui::wallpaper::Wallpaper>,
 }
 
 /// One window's picture, as pt35d captured it.
@@ -409,6 +411,7 @@ impl Menu {
             bad_previews: std::collections::HashMap::new(),
             cards_drawn: Vec::new(),
             scrolling: false,
+            wallpaper: None,
         }
     }
 
@@ -2470,6 +2473,11 @@ impl App for Menu {
 
     fn draw(&mut self, canvas: &mut Canvas) {
         self.scrollbar = None;
+        if self.on_launcher() {
+            if let Some(wallpaper) = &self.wallpaper {
+                wallpaper.draw(canvas);
+            }
+        }
         let hint_top = canvas.height as i32 - self.theme.menu.hint_height as i32;
         // Where the screen's own content stops: above the hints, and above an
         // error when there is one. The hints stay where they are, or they
@@ -2560,6 +2568,10 @@ pub fn run(page: Option<String>) -> Result<()> {
             last
         })
     };
+    // Parsed and drawn beside the fonts, so the first frame does not wait on it.
+    let wallpaper = std::thread::spawn(|| {
+        pt35_ui::wallpaper::Wallpaper::load(&pt35_common::paths::config_dir().join("wallpaper.svg"))
+    });
     let f = &theme.font;
     let font = load(vec![f.family.clone()]);
     let mono = load(vec![f.family_mono.clone(), f.family.clone()]);
@@ -2605,6 +2617,7 @@ pub fn run(page: Option<String>) -> Result<()> {
         model.mark_entry();
     }
     let mut menu = Menu::new(theme, font, mono, bold, mono_bold, model);
+    menu.wallpaper = wallpaper.join().ok().flatten();
     // The banner is the only place a broken theme file can say so.
     if let Some(problem) = theme_problems.first() {
         menu.error = Some(format!("Left out {problem}"));
