@@ -3877,13 +3877,16 @@ impl App for Menu {
         }
         if self.raining() {
             self.rain_drawn = self.rain_step();
+            // The pixel face, as on the clock, when there is one.
+            let font = self.display.as_mut().unwrap_or(&mut self.mono);
             pt35_ui::rain::draw(
                 canvas,
-                &mut self.mono,
+                font,
                 self.rain_drawn,
                 self.theme.effects.rain,
                 self.theme.color.foreground,
                 self.theme.color.background,
+                self.theme.effects.glow,
             );
         }
         let hint_top = canvas.height as i32 - self.theme.menu.hint_height as i32;

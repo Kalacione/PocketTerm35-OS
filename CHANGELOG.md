@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2+u21 (2026-11-01)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u20 with a rain closer to the film's.
+
+### Changed
+
+- The rain is drawn in the display face (VT323 with the Unleashed theme),
+  the clock's pixel font, at 18 px. Its glyphs are digits, the film's
+  symbols, capitals, Greek and Cyrillic, half of them mirrored. A glyph
+  the face lacks is left out.
+- The head of each drop glows, `[effects] glow` pixels wide. Only the
+  heads: a couple of dozen small halos a frame.
 ## 0.4.2+u20 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u19 with rain behind the home.
