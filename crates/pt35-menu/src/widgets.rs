@@ -502,7 +502,10 @@ tmpfs 100 50 /run
     #[test]
     fn services_put_the_down_ones_first() {
         let s = parse_services("UP dns\ndown back up\n\nnoname\nPAUSED app\n", true);
-        let got: Vec<_> = s.iter().map(|s| (s.state.as_str(), s.name.as_str())).collect();
+        let got: Vec<_> = s
+            .iter()
+            .map(|s| (s.state.as_str(), s.name.as_str()))
+            .collect();
         assert_eq!(
             got,
             vec![("DOWN", "back up"), ("UP", "dns"), ("PAUSED", "app")]

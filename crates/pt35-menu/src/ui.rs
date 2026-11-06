@@ -2091,9 +2091,7 @@ impl Menu {
         let small = theme.font.size_hint * 0.8;
         let services = self.readings.services.clone();
         if services.is_empty() {
-            let text = self
-                .font
-                .elide("No services file", small, (w - 24) as u32);
+            let text = self.font.elide("No services file", small, (w - 24) as u32);
             self.font
                 .draw(canvas, &text, x + 12, top + 40, small, theme.color.muted);
             return;
@@ -2133,7 +2131,7 @@ impl Menu {
         canvas: &mut Canvas,
         row: (i32, i32, i32),
         word: &str,
-        colour: Color,
+        colour: Rgb,
         filled: bool,
         name: &str,
     ) {
