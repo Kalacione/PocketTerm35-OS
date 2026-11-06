@@ -178,6 +178,7 @@ fn widgets() -> Items {
                 crate::widgets::Widget::Media => "audio-x-generic",
                 crate::widgets::Widget::Storage => "drive-harddisk",
                 crate::widgets::Widget::Hosts => "network-server",
+                crate::widgets::Widget::Services => "network-server",
             }
             .into(),
             active: pinned.contains(&w),
