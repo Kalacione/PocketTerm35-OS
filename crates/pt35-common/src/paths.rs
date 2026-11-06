@@ -91,6 +91,11 @@ pub fn hosts_path() -> PathBuf {
     state_dir().join("hosts")
 }
 
+/// What the SERVICES widget shows: `UP name` lines, written by any script.
+pub fn services_path() -> PathBuf {
+    state_dir().join("services")
+}
+
 /// The widget the home showed last.
 pub fn widget_path() -> PathBuf {
     state_dir().join("widget")

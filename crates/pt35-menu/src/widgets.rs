@@ -22,6 +22,8 @@ pub struct Readings {
     pub volumes: Option<Vec<Volume>>,
     /// The pinned hosts as pt35d last found them.
     pub hosts: Vec<pt35_common::ipc::HostStatus>,
+    /// The services file, worst first.
+    pub services: Vec<Service>,
     /// The player, over MPRIS. Some while one is playing or paused.
     pub media: Option<Media>,
     media_rx: Option<Receiver<Option<Media>>>,
@@ -29,6 +31,22 @@ pub struct Readings {
 
 /// Address, network name and volumes: a process each, read once per open.
 type Slow = (Option<String>, Option<String>, Option<Vec<Volume>>);
+
+/// One line of the services file: `UP name`, `DOWN name`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Service {
+    pub state: String,
+    pub name: String,
+}
+
+impl Service {
+    pub fn down(&self) -> bool {
+        self.state == "DOWN"
+    }
+}
+
+/// Past this age nobody is writing the file. A stale UP must not read as UP.
+const SERVICES_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// A mounted drive, as `df` reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -116,7 +134,41 @@ impl Readings {
         {
             self.hosts = hosts;
         }
+        self.services = read_services();
     }
+}
+
+fn read_services() -> Vec<Service> {
+    let path = pt35_common::paths::services_path();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age <= SERVICES_MAX_AGE);
+    parse_services(&text, fresh)
+}
+
+/// Down first, so a short panel shows what matters. Stale lines read `OLD`.
+fn parse_services(text: &str, fresh: bool) -> Vec<Service> {
+    let mut out: Vec<Service> = text
+        .lines()
+        .filter_map(|line| {
+            let (state, name) = line.trim().split_once(char::is_whitespace)?;
+            Some(Service {
+                state: if fresh {
+                    state.to_uppercase()
+                } else {
+                    "OLD".into()
+                },
+                name: name.trim().to_string(),
+            })
+        })
+        .collect();
+    out.sort_by_key(|s| !s.down());
+    out
 }
 
 impl Readings {
@@ -285,14 +337,16 @@ pub enum Widget {
     Media,
     Storage,
     Hosts,
+    Services,
 }
 
 impl Widget {
-    pub const ALL: [Widget; 4] = [
+    pub const ALL: [Widget; 5] = [
         Widget::Network,
         Widget::Media,
         Widget::Storage,
         Widget::Hosts,
+        Widget::Services,
     ];
 
     pub fn id(self) -> &'static str {
@@ -301,6 +355,7 @@ impl Widget {
             Widget::Media => "media",
             Widget::Storage => "storage",
             Widget::Hosts => "hosts",
+            Widget::Services => "services",
         }
     }
 
@@ -310,6 +365,7 @@ impl Widget {
             Widget::Media => "Media",
             Widget::Storage => "Storage",
             Widget::Hosts => "Hosts",
+            Widget::Services => "Services",
         }
     }
 
@@ -441,6 +497,25 @@ tmpfs 100 50 /run
         assert_eq!(bytes(v[0].free), "72 GB");
         assert_eq!(bytes(v[1].free), "1.0 GB");
         assert_eq!(bytes(640_000_000), "640 MB");
+    }
+
+    #[test]
+    fn services_put_the_down_ones_first() {
+        let s = parse_services("UP dns\ndown back up\n\nnoname\nPAUSED app\n", true);
+        let got: Vec<_> = s
+            .iter()
+            .map(|s| (s.state.as_str(), s.name.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("DOWN", "back up"), ("UP", "dns"), ("PAUSED", "app")]
+        );
+    }
+
+    #[test]
+    fn a_stale_file_claims_nothing() {
+        let s = parse_services("UP dns\nDOWN backup\n", false);
+        assert!(s.iter().all(|s| s.state == "OLD"));
     }
 
     #[test]
