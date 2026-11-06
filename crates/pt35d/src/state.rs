@@ -75,6 +75,8 @@ pub struct Session {
     closing: Vec<(i64, std::time::Instant)>,
     /// The `assign` and `for_window` rules sway holds.
     sent_rules: Vec<String>,
+    /// The last placement sent to sway, and when.
+    last_placement: Option<(String, std::time::Instant)>,
 }
 
 /// How long a launch suppresses the empty-desktop menu. Long enough for a slow
@@ -85,6 +87,9 @@ const LAUNCH_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 /// How long a killed window stays out of the list while its client goes. One
 /// still there after this is asking about unsaved work, and comes back.
 const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// How long an unchanged placement waits before it is sent again.
+const PLACEMENT_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The Start button, by the keysym `KEY_PAUSE` produces. Bound by the daemon
 /// rather than the sway config, because it changes hands when the menu opens.
@@ -145,6 +150,7 @@ impl Session {
             launch_pending: Some(std::time::Instant::now()),
             closing: Vec::new(),
             sent_rules: Vec::new(),
+            last_placement: None,
         };
         if let Err(e) = session.menu.validate() {
             log::error!("menu.toml is inconsistent ({e}); the menu key will show an error page");
@@ -162,6 +168,7 @@ impl Session {
         session.status.cpu_profile = crate::hardware::current_cpu_profile();
         session.apply_wallpaper();
         apply_color_scheme(&session.theme);
+        apply_animations(&session.theme);
         apply_cursor(&session.theme.pointer);
         session.kill_stray_menu();
         session
@@ -383,21 +390,7 @@ impl Session {
     /// focus has moved on and lands on the wrong workspace. An assign rule is
     /// evaluated when the window appears, so timing stops mattering.
     fn apply_assignments(&mut self) {
-        let rules: Vec<String> = self
-            .apps
-            .apps
-            .values()
-            .filter(|app| app.workspace > 0)
-            .flat_map(|app| {
-                app.sway_criteria_list()
-                    .into_iter()
-                    .map(move |criteria| {
-                        format!("assign {criteria} workspace number {}", app.workspace)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        for rule in rules {
+        for rule in crate::placement::assign_rules(&self.apps) {
             self.send_rule(rule);
         }
     }
@@ -549,12 +542,20 @@ impl Session {
     /// Deliberately free of hardware reads: an event can arrive many times a
     /// second and `audio::state` spawns a subprocess.
     pub fn refresh_windows(&mut self) {
-        let tree = self.tree();
+        let mut tree = self.tree();
+        let mut front = self.sway().and_then(|s| s.focused_workspace());
+        let moved = match (&tree, &front) {
+            (Some(tree), Ok(front)) => self.place_windows(tree, *front),
+            _ => false,
+        };
+        if moved {
+            tree = self.tree().or(tree);
+            front = self.sway().and_then(|s| s.focused_workspace());
+        }
         if let Some(tree) = &tree {
             self.status.windows = self.windows_in(tree);
         }
-        self.spread_windows();
-        match self.sway().and_then(|s| s.focused_workspace()) {
+        match front {
             Ok(workspace) => {
                 self.status.workspace = workspace;
                 if let Some(tree) = &tree {
@@ -620,17 +621,69 @@ impl Session {
             .collect()
     }
 
-    /// Give every tiled window its own workspace. A second window on one
-    /// workspace would split the screen down the middle.
-    fn spread_windows(&mut self) {
-        for (id, workspace) in overflow_moves(&self.status.windows) {
-            let cmd = format!("[con_id={id}] move container to workspace number {workspace}");
-            if let Err(e) = self.sway_command(&cmd) {
-                log::warn!("{cmd}: {e}");
-            } else if let Some(w) = self.status.windows.iter_mut().find(|w| w.id == id) {
-                w.workspace = workspace;
+    /// Give every tiled window its workspace (`placement`). A second window on
+    /// one workspace would split the screen down the middle. True when sway
+    /// was asked to move anything.
+    fn place_windows(&mut self, tree: &serde_json::Value, front: u8) -> bool {
+        // The whole tree: a window asked to close holds its workspace until
+        // it has gone.
+        let windows = pt35_common::sway::windows(tree);
+        let closing = self.closing_ids();
+        let plan = crate::placement::plan(&windows, &self.apps, front, &closing);
+        let Some(cmd) = plan.command() else {
+            return false;
+        };
+        // The same plan again means the last one did not take: sway put a
+        // window somewhere else. Each move is an event of its own, so sending
+        // it on every event would loop. It waits for a poll instead.
+        if let Some((last, at)) = &self.last_placement {
+            if *last == cmd && at.elapsed() < PLACEMENT_RETRY {
+                return false;
             }
         }
+        // Logged every time, so a plan that never settles shows in the journal.
+        log::info!("placing windows: {cmd}");
+        if let Err(e) = self.sway_command(&cmd) {
+            log::warn!("placing windows: {e}");
+        }
+        self.last_placement = Some((cmd, std::time::Instant::now()));
+        true
+    }
+
+    /// Windows asked to close that may still be in the tree.
+    fn closing_ids(&self) -> Vec<i64> {
+        self.closing
+            .iter()
+            .filter(|(_, at)| at.elapsed() < CLOSE_GRACE)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Go where a launched app's window will be put, before it maps, so it
+    /// opens in front. `owns` is the workspace its profile owns. Only for a
+    /// profile: an app profile always makes a window.
+    ///
+    /// Switching first is a race a slow app could lose, so it is not what
+    /// places the window: an `assign` rule puts an owner's window home, and
+    /// `place_windows` puts anything else where `launch_target` said.
+    fn go_to_launch_workspace(&mut self, owns: Option<u8>) -> Result<()> {
+        let Some(tree) = self.tree() else {
+            return Ok(());
+        };
+        let windows = pt35_common::sway::windows(&tree);
+        let front = self
+            .sway()
+            .and_then(|s| s.focused_workspace())
+            .unwrap_or(self.status.workspace);
+        let closing = self.closing_ids();
+        let target = crate::placement::launch_target(&windows, &self.apps, owns, front, &closing);
+        if target != front {
+            self.sway_command(&format!("workspace number {target}"))?;
+        }
+        // Before sway's event says so: a menu closing first would read the
+        // old workspace as current, and ensure_focus would switch back.
+        self.status.workspace = target;
+        Ok(())
     }
 
     fn low_battery_hook(&mut self) {
@@ -932,14 +985,19 @@ impl Session {
             }
 
             Request::Reload => {
+                // Check the new files before taking them, so a reload that
+                // fails leaves the running config as it was.
+                let menu: MenuTree = load_or_default("pt35/menu.toml");
+                let apps: AppTable = load_or_default("pt35/apps.toml");
+                menu.validate()?;
+                apps.validate()?;
                 self.theme = load_theme_or_default();
-                self.menu = load_or_default("pt35/menu.toml");
-                self.apps = load_or_default("pt35/apps.toml");
-                self.menu.validate()?;
-                self.apps.validate()?;
+                self.menu = menu;
+                self.apps = apps;
                 self.apply_assignments();
                 self.apply_wallpaper();
                 apply_color_scheme(&self.theme);
+                apply_animations(&self.theme);
                 apply_cursor(&self.theme.pointer);
                 hooks::fire("reload", &[]);
                 self.notify("Config reloaded", 0);
@@ -1101,6 +1159,11 @@ impl Session {
         let current = self.current_window().map(|w| w.id) == Some(id);
         let next =
             next_window(&self.status.windows, self.status.workspace, true).filter(|_| current);
+        // A GTK app ignores a close while its menu bar is open, and Y opens it.
+        // Only the focused window can have a menu open.
+        if self.status.windows.iter().any(|w| w.id == id && w.focused) {
+            self.close_popups();
+        }
         self.sway_command(&format!("[con_id={id}] kill"))?;
         self.status.windows.retain(|w| w.id != id);
         self.closing.push((id, std::time::Instant::now()));
@@ -1191,10 +1254,14 @@ impl Session {
         }
         // Anything is better than nothing here, so this one does fall back to
         // the first window in the list. `current_window` must not: it decides
-        // what gets closed.
+        // what gets closed. Not while a launch is pending: the app is about to
+        // map on this workspace, and the first window would switch away from it.
+        let pending = self
+            .launch_pending
+            .is_some_and(|at| at.elapsed() < LAUNCH_GRACE);
         let id = self
             .current_window()
-            .or_else(|| self.status.windows.first())
+            .or_else(|| self.status.windows.first().filter(|_| !pending))
             .map(|w| w.id);
         if let Some(id) = id {
             let _ = self.sway_command(&format!("[con_id={id}] focus"));
@@ -1315,9 +1382,7 @@ impl Session {
             }
         }
 
-        if app.workspace > 0 {
-            self.sway_command(&format!("workspace number {}", app.workspace))?;
-        }
+        self.go_to_launch_workspace(app.owned_workspace())?;
         if app.fullscreen {
             for criteria in app.sway_criteria_list() {
                 self.send_rule(format!("for_window {criteria} fullscreen enable"));
@@ -1375,6 +1440,11 @@ impl Session {
             }
         }
 
+        // No switch to a launch workspace first. A command may make no window
+        // (an app already open elsewhere, a viewer with nothing to show), or
+        // one that is not the app its program name suggests, and you would
+        // wait on an empty workspace for the whole launch grace. The window
+        // maps where you are, and `place_windows` moves it if it must.
         reap(
             Command::new("sh")
                 .arg("-c")
@@ -1586,48 +1656,6 @@ pub fn next_window(
     Some(windows[next].id)
 }
 
-/// Windows that have to move so no workspace holds two tiled windows.
-///
-/// 640x480 splits into two unusable halves, so one window owns the screen and
-/// the others wait on their own workspace. The focused window keeps its place;
-/// floating windows are dialogs and are left alone. So is a portal's file
-/// chooser, in case it maps before the sway rule floats it: moved away, the app
-/// that asked for it waits on it where you cannot see.
-pub fn overflow_moves(windows: &[pt35_common::ipc::WindowInfo]) -> Vec<(i64, u8)> {
-    let tiled: Vec<&pt35_common::ipc::WindowInfo> = windows
-        .iter()
-        .filter(|w| !w.floating && w.workspace > 0 && !w.app.starts_with("xdg-desktop-portal"))
-        .collect();
-    let mut occupied: Vec<u8> = Vec::new();
-    let mut movers: Vec<i64> = Vec::new();
-    for workspace in 1..=9u8 {
-        let here: Vec<&pt35_common::ipc::WindowInfo> = tiled
-            .iter()
-            .copied()
-            .filter(|w| w.workspace == workspace)
-            .collect();
-        if here.is_empty() {
-            continue;
-        }
-        occupied.push(workspace);
-        let keeper = here
-            .iter()
-            .find(|w| w.focused)
-            .map(|w| w.id)
-            .unwrap_or(here[0].id);
-        movers.extend(here.iter().map(|w| w.id).filter(|id| *id != keeper));
-    }
-    let mut moves = Vec::new();
-    for id in movers {
-        let Some(free) = (1..=9u8).find(|n| !occupied.contains(n)) else {
-            break;
-        };
-        occupied.push(free);
-        moves.push((id, free));
-    }
-    moves
-}
-
 /// The scales worth cycling through on a 640x480 panel: native, then the two
 /// that GUI apps need (853x640 and 1067x800 logical).
 pub fn next_scale(current: f32) -> f32 {
@@ -1696,6 +1724,32 @@ pub fn color_scheme_settings(
         ("color-scheme", scheme.to_string()),
         ("gtk-theme", gtk.clone()),
     ])
+}
+
+/// The menu's animation speed covers GTK apps too, so one setting means all
+/// motion. GTK has no speed: any speed but 0 is on. Left alone with
+/// `color_scheme = "keep"`, like the rest of GTK.
+fn apply_animations(theme: &pt35_common::theme::Theme) {
+    if theme.apps.color_scheme == pt35_common::theme::ColorScheme::Keep {
+        return;
+    }
+    let on = (theme.menu.animations > 0).to_string();
+    std::thread::spawn(move || {
+        let status = Command::new("gsettings")
+            .args([
+                "set",
+                "org.gnome.desktop.interface",
+                "enable-animations",
+                &on,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if !matches!(status, Ok(s) if s.success()) {
+            log::warn!("gsettings set enable-animations {on} failed");
+        }
+    });
 }
 
 /// GTK draws its own cursor over its windows, so it is told too.
@@ -1881,40 +1935,6 @@ mod tests {
         assert!(dark.contains(&("gtk-theme", "Adwaita-dark".into())));
         apps.color_scheme = pt35_common::theme::ColorScheme::Keep;
         assert!(color_scheme_settings(&apps).is_none());
-    }
-
-    #[test]
-    fn a_file_chooser_stays_with_the_app_that_asked_for_it() {
-        let mut chooser = window(2, 1, true);
-        chooser.app = "xdg-desktop-portal-gtk".into();
-        assert!(overflow_moves(&[window(1, 1, false), chooser]).is_empty());
-    }
-
-    #[test]
-    fn a_second_window_on_a_workspace_moves_to_a_free_one() {
-        let list = [window(1, 2, true), window(2, 2, false), window(3, 3, false)];
-        assert_eq!(overflow_moves(&list), vec![(2, 1)]);
-    }
-
-    #[test]
-    fn the_focused_window_is_the_one_that_stays() {
-        let list = [window(1, 2, false), window(2, 2, true)];
-        assert_eq!(overflow_moves(&list), vec![(1, 1)]);
-    }
-
-    #[test]
-    fn dialogs_and_single_windows_are_left_alone() {
-        let mut floating = window(2, 2, false);
-        floating.floating = true;
-        let list = [window(1, 2, true), floating, window(3, 3, false)];
-        assert!(overflow_moves(&list).is_empty());
-    }
-
-    #[test]
-    fn nothing_moves_when_every_workspace_is_taken() {
-        let mut list: Vec<_> = (1..=9).map(|n| window(n as i64, n, false)).collect();
-        list.push(window(99, 1, false));
-        assert!(overflow_moves(&list).is_empty());
     }
 
     #[test]

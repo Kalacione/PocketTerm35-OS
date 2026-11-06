@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.4.5+u1 (2026-11-06)
+
+PocketTerm 3.5 Unleashed build: upstream 0.4.5 with every Unleashed change up
+to 0.4.2+u22.
+
+### Changed
+
+- The glow, the mirrored rain and the clock draw with ab_glyph, the font
+  library upstream moved to in 0.4.4.
+- The menu loads its fonts in order again: they no longer parse every glyph,
+  so the threads that hid that cost are gone.
+- The Bar screen names the menu button Shutter.
+
+## 0.4.5 (2026-11-04)
+
+### Fixed
+
+- Flashing the keyboard no longer stops it typing on units whose HID library
+  is named `adafruit_hid` (#8). `pt35-kbd restore` had the same fault.
+
+## 0.4.4 (2026-11-03)
+
+### Added
+
+- A new AI model, LFM3 1.7B. Pick it in the installer or with
+  `sudo pt35-ai model lfm3-1.7b`.
+
+### Changed
+
+- 10x lower memory use: the bar and the menu take 10.5 MB (was 111 MB).
+- The menu opens 4x faster: 27 ms (was 101 ms).
+- Settings has new Bar and Menu screens, and Appearance is shorter. If you
+  changed `[menu.settings]` yourself, add `{ builtin = "bar" }` and
+  `{ builtin = "menu" }` to it.
+- Animations has a speed setting: Off, or 1 to 5.
+- When the terminal on workspace 1 closes, another terminal takes its place,
+  so Super + 1 still finds one.
+- Updated llama.cpp and darkwire for the AI agent. To update an existing
+  agent, run `sudo pt35-ai model` with the model you use.
+
+### Fixed
+
+- Apps like Disk usage, DarkWire and a second terminal no longer take
+  another app's workspace (#6).
+- A tenth window no longer splits the screen (#6).
+- Dialogs follow their app to another workspace.
+- Super + Enter opens the terminal in front.
+
+## 0.4.3 (2026-11-02)
+
+### Added
+
+- Settings > Appearance has an Animations switch. It stops the menu's motion
+  in the menu that is open, without a restart. GTK apps follow it too, unless
+  `[apps] color_scheme` is `keep`. Qt apps do not, because Qt's GTK theme
+  never reads that setting (#4).
+
+### Changed
+
+- The D-pad pills in the hint bar show arrows instead of `<>` and `^v`. On a
+  keyboard with `<` and `>` keys, `<>` looked like those two keys (#5).
+
+### Fixed
+
+- An app opened from the launcher now opens in front. If the app had a
+  workspace of its own, focus went back to the window you came from while
+  the app started, and the app opened out of sight (#2).
+- L closes a window that has its menu bar open. A GTK app ignored the close
+  while its menu was open, and the window came back after 3 seconds. pt35d
+  now closes the menu first (#3).
+- A `pt35ctl reload` that fails keeps the config that was running. pt35d used
+  to keep the menu and apps files it had just rejected, half applied (#7).
+- The installer works on a system in another language. It looked for the
+  English "Candidate:" line in `apt-cache policy`. On a German system apt
+  translates that line, so the installer found no sway and stopped with
+  "no 'sway' package available". It now runs apt in English (#1).
 ## 0.4.2+u22 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u21 with a brighter home clock.

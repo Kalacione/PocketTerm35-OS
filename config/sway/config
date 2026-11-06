@@ -5,7 +5,10 @@
 
 ### ------------------------------------------------------------------ basics
 set $mod Mod4
-set $term foot pt35-hello
+# Through pt35d, so the terminal opens in front. A bare exec put it on 1 by the
+# assign, out of sight, and a second one past 9. Bare foot only if pt35d is not
+# running: a pt35ctl that timed out on a busy pt35d still gets its terminal.
+set $term pt35ctl launch terminal || pgrep -x pt35d >/dev/null || foot pt35-hello
 set $menu pt35ctl menu toggle
 set $ctl  pt35ctl
 
@@ -51,10 +54,11 @@ input type:touch {
 }
 
 ### ------------------------------------------------------- window management
-# Every app owns a workspace and is the only window on it: no tiling splits,
-# no stacking to get lost in. 640x480 splits into two unusable halves, so pt35d
-# moves any second window on a workspace to a free one instead of letting sway
-# tile it. Workspace 1 is always a terminal.
+# Every window is the only one on its workspace: no tiling splits, no stacking
+# to get lost in. 640x480 splits into two unusable halves. An app with a
+# workspace in apps.toml lives there; any other window goes to a free workspace
+# no app owns, 10 and up. pt35d's placement keeps it that way. Workspace 1 is
+# always a terminal.
 workspace_layout default
 for_window [shell=".*"] inhibit_idle fullscreen
 
