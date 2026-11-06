@@ -3,7 +3,7 @@
 ## 0.4.5+u1 (2026-11-06)
 
 PocketTerm 3.5 Unleashed build: upstream 0.4.5 with every Unleashed change up
-to 0.4.2+u22.
+to 0.4.2+u23.
 
 ### Changed
 
@@ -76,6 +76,17 @@ to 0.4.2+u22.
   English "Candidate:" line in `apt-cache policy`. On a German system apt
   translates that line, so the installer found no sway and stopped with
   "no 'sway' package available". It now runs apt in English (#1).
+## 0.4.2+u23 (2026-11-06)
+
+PocketTerm 3.5 Unleashed build: 0.4.2+u22 with a SERVICES widget.
+
+### Added
+
+- SERVICES widget in the home pile. It shows `~/.local/state/pt35/services`:
+  one `UP name` or `DOWN name` line per service, written by any script.
+  Any other word shows as it is, in muted. Down comes first, then a
+  `+2 more` count. Past 5 minutes without a write every row reads `OLD`.
+
 ## 0.4.2+u22 (2026-11-01)
 
 PocketTerm 3.5 Unleashed build: 0.4.2+u21 with a brighter home clock.

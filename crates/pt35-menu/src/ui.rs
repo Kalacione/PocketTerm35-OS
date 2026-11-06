@@ -1932,6 +1932,7 @@ impl Menu {
             Widget::Media => self.draw_media(canvas, x, pile_top, w, h),
             Widget::Storage => self.draw_storage(canvas, x, pile_top, w, h),
             Widget::Hosts => self.draw_hosts(canvas, x, pile_top, w, h),
+            Widget::Services => self.draw_services(canvas, x, pile_top, w, h),
         }
     }
 
@@ -2098,33 +2099,8 @@ impl Menu {
                 (Some(true), Some(ms)) if ms > 150 => ("SLOW", theme.color.warning, false),
                 (Some(true), _) => ("UP", theme.color.ok, false),
             };
-            let (tx, tw) = (rx + 6, 52);
-            if filled {
-                canvas.rect(tx, y + 6, tw as u32, 18, colour);
-            } else {
-                canvas.frame(tx, y + 6, tw as u32, 18, colour);
-            }
-            let ink = if filled {
-                theme.color.background
-            } else {
-                colour
-            };
-            let lw = self.mono_bold.measure(word, small) as i32;
-            self.mono_bold
-                .draw(canvas, word, tx + (tw - lw) / 2, y + 20, small, ink);
-            let name = self.font.elide(
-                &host.name,
-                small * 1.1,
-                (rx + rw - 6 - (tx + tw + 8)) as u32,
-            );
-            self.font.draw(
-                canvas,
-                &name,
-                tx + tw + 8,
-                y + 20,
-                small * 1.1,
-                theme.color.foreground,
-            );
+            let tx = rx + 6;
+            self.draw_status_row(canvas, (rx, y, rw), word, colour, filled, &host.name);
             let detail = match (host.up, host.latency_ms) {
                 (Some(true), Some(0)) => "<1 ms".into(),
                 (Some(true), Some(ms)) => format!("{ms} ms"),
@@ -2162,6 +2138,86 @@ impl Menu {
                 }),
             ));
         }
+    }
+
+    /// The services file, worst first. The last row counts what did not fit.
+    fn draw_services(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint * 0.8;
+        let services = self.readings.services.clone();
+        if services.is_empty() {
+            let text = self.font.elide("No services file", small, (w - 24) as u32);
+            self.font
+                .draw(canvas, &text, x + 12, top + 40, small, theme.color.muted);
+            return;
+        }
+        let row_h = ((h - 34) / 3).min(50);
+        let hidden = services.len().saturating_sub(3);
+        for (i, service) in services.iter().take(3).enumerate() {
+            let y = top + 26 + i as i32 * row_h;
+            let (rx, rw, rh) = (x + 8, w - 16, row_h - 4);
+            canvas.frame(rx, y, rw as u32, rh as u32, theme.color.border);
+            let (colour, filled) = match service.state.as_str() {
+                "UP" => (theme.color.ok, false),
+                "DOWN" => (theme.color.critical, true),
+                _ => (theme.color.muted, false),
+            };
+            let word = self.mono_bold.elide(&service.state, small, 48);
+            self.draw_status_row(canvas, (rx, y, rw), &word, colour, filled, &service.name);
+            if i == 2 && hidden > 0 {
+                let more = format!("+{hidden} more");
+                let mw = self.mono.measure(&more, small) as i32;
+                self.mono.draw(
+                    canvas,
+                    &more,
+                    rx + rw - 6 - mw,
+                    y + rh - 7,
+                    small,
+                    theme.color.muted,
+                );
+            }
+        }
+    }
+
+    /// A state written in a tag, filled when it needs eyes, then a name. Never
+    /// the colour alone. `row` is left, top and width.
+    fn draw_status_row(
+        &mut self,
+        canvas: &mut Canvas,
+        row: (i32, i32, i32),
+        word: &str,
+        colour: Rgb,
+        filled: bool,
+        name: &str,
+    ) {
+        let theme = self.theme.clone();
+        let small = theme.font.size_hint * 0.8;
+        let (rx, y, rw) = row;
+        let (tx, tw) = (rx + 6, 52);
+        if filled {
+            canvas.rect(tx, y + 6, tw as u32, 18, colour);
+        } else {
+            canvas.frame(tx, y + 6, tw as u32, 18, colour);
+        }
+        let ink = if filled {
+            theme.color.background
+        } else {
+            colour
+        };
+        let lw = self.mono_bold.measure(word, small) as i32;
+        self.mono_bold
+            .draw(canvas, word, tx + (tw - lw) / 2, y + 20, small, ink);
+        let name = self
+            .font
+            .elide(name, small * 1.1, (rx + rw - 6 - (tx + tw + 8)) as u32);
+        self.font.draw(
+            canvas,
+            &name,
+            tx + tw + 8,
+            y + 20,
+            small * 1.1,
+            theme.color.foreground,
+        );
     }
 
     /// Down as a filled area under a line, up as a dotted line, newest on the
