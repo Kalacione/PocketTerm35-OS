@@ -16,6 +16,7 @@ mod hardware;
 mod hooks;
 mod hosts;
 mod modes;
+mod placement;
 mod recents;
 mod server;
 mod state;

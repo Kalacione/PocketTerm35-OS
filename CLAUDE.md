@@ -175,10 +175,16 @@ window appears in front.
 
 640x480 leaves no room for chrome that is not earning its place.
 
-- No tiling. One window owns the screen; pt35d moves a second window on a
-  workspace to a free one. Not sway `fullscreen`, which would hide the bar.
-  Dialogs float over their app and are never moved. A portal's file chooser
-  has no parent sway can see, so it is floated by name in the sway config.
+- No tiling. One window owns the screen. Not sway `fullscreen`, which would
+  hide the bar. A profile with `workspace = N` owns N, and the app's oldest
+  window lives there. Every other window is a guest (a second terminal, an
+  app with no workspace, a .desktop app) and lives on a free workspace no
+  profile owns: 10 and up with the shipped profiles. A guest never sits on an
+  owned workspace, even while its app is closed, so an owner never pushes
+  anything out. `pt35d`'s `placement.rs` is that whole policy, run on every
+  tree change, so any layout converges on it. Dialogs float over their app
+  and move only with it. A portal's file chooser has no parent sway can see,
+  so it is floated by name in the sway config.
 - The bar rises to the overlay layer while the menu is up
   (`App::raised`): sway hides the top layer under a fullscreen window. It
   moves only with no button or finger down: sway 1.10 segfaults when a surface
@@ -202,22 +208,34 @@ window appears in front.
 - Corners are 2px. Squared, not rounded.
 - Motion is two things, each about 0.1s: the selection glides, a new screen
   settles. The draw loop runs at 60fps only while one is moving and sleeps
-  otherwise (`App::animating`). `[menu] animations = false` turns both off.
+  otherwise (`App::animating`). `[menu] animations` is a speed: 0 turns both
+  off, and GTK's `enable-animations` with them; 1 to 5 run slowest to
+  fastest, 3 the default (`theme::animation_spans`). `true` and `false` still
+  read as 3 and 0. Settings > Appearance > Animations has the ladder. Qt's
+  GTK theme does not read that setting.
   The home's rain (`[effects] rain`) moves `rain_speed` rows a second, 4 at
   most, on the menu's tick: never a 60fps loop.
 - Performance comes first. The menu is a new process per open, so nothing slow
-  may run before its first frame: measure it (about 75ms on a Pi 5). An icon
-  miss once walked every theme folder and cost 3.5s.
+  may run before its first frame. Measure it: `RUST_LOG=pt35_ui=debug
+  pt35-menu` logs the first frame, about 27 ms on a Pi 5. An icon miss once
+  walked every theme folder and cost 3.5s. fontdue once parsed every glyph of
+  the four faces on each start, 70 ms and 57 MB. `ab_glyph` reads a glyph
+  when it is first drawn.
 - Mint on charcoal, mono for readouts and sans for labels. Geometry and colour
   live in `config/pt35/theme.toml`. Do not hardcode either in a widget.
-  Settings > Appearance writes `~/.config/pt35/appearance.toml`, layered between
-  the shipped theme and the user's `theme.toml`. A palette sets every colour and
-  the wallpaper. GTK and Qt apps follow `[apps] color_scheme` through gsettings.
+  Settings > Appearance, Bar and Menu write `~/.config/pt35/appearance.toml`,
+  layered between the shipped theme and the user's `theme.toml`. A choice
+  with more than two values (palette, accent, clock, speed) has a screen of
+  its own, and its row reads out the value in use. A palette sets every
+  colour and the wallpaper. GTK and Qt apps follow `[apps] color_scheme` through gsettings.
 - Icons come from the installed Papirus theme (`pt35-ui`'s `icon.rs`), tinted
   from the symbolic set for status and full colour for apps. Nothing depends on
   it: every icon falls back to the `glyph` letter or a drawn meter.
 - An app profile's workspace is applied with a sway `assign` rule at startup, not
-  by switching workspace before spawning: that is a race a slow app loses.
+  by switching workspace before spawning: that is a race a slow app loses. A
+  launch still goes to `launch_target` first so the app opens in front, but
+  the assign and `placement.rs` decide where the window lands. A bare command
+  goes nowhere first: it may make no window at all.
 - The output stays at scale 1. A profile's `scale` goes to the app as
   `GDK_DPI_SCALE` / `QT_SCALE_FACTOR`, so the shell never shrinks with it.
 
@@ -235,6 +253,15 @@ prebuilt llama.cpp in `/opt/pt35-ai`. Models are in `/var/lib/pt35-ai/models`.
   Q4_K_M on the 2B, but at Q4_0 Qwen3 0.6B stops calling tools.
 - The KV cache is f16. q8_0 halves it, but 3000 tokens deep it reads prompts
   2-5x slower on the Pi 5, so only a 1 GB board gets it.
+- Flash attention stays on. With it off, the 2B writes 30% faster 3000
+  tokens deep, but llama.cpp's scratch buffer grows with the context: 2.2 GB
+  for LFM3 at 64k, against 130 MB with it on. `llama-server -lv 4` logs the
+  buffer size. RSS at start does not show it.
+- LFM3 is a hybrid (13 of 24 layers are convolutions). llama.cpp resumes it
+  only from a checkpoint n_ubatch + 4 tokens before the last prompt's end,
+  so every turn reads about 516 tokens again. With thinking off it sometimes
+  writes `answer</think>answer`, and its Q4_K_M does too. No llama.cpp flag
+  strips it.
 - No speculative draft model. MiniCPM5's DSpark draft ships as BF16, which the
   A76 cannot run fast, and even quantized it slowed prose by a quarter. The
   n-gram draft costs nothing when it misses.

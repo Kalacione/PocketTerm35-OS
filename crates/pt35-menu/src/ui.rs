@@ -128,7 +128,7 @@ const NAV_HINTS: &[Hint] = &[
 
 const WINDOW_HINTS: &[Hint] = &[
     Hint {
-        button: "<>",
+        button: "←→",
         action: "Move",
     },
     Hint {
@@ -172,7 +172,7 @@ const MOUSE_HINTS: &[Hint] = &[
 
 const QUICK_HINTS: &[Hint] = &[
     Hint {
-        button: "<>",
+        button: "←→",
         action: "Adjust",
     },
     Hint {
@@ -195,7 +195,7 @@ const FILTER_HINTS: &[Hint] = &[
         action: "Open",
     },
     Hint {
-        button: "^v",
+        button: "↑↓",
         action: "Move",
     },
     Hint {
@@ -265,6 +265,9 @@ pub struct Menu {
     /// App profiles, for matching a launcher row to an open window.
     apps: pt35_common::apps::AppTable,
     motion: Motion,
+    /// Depth of the last theme pick. A settings screen under it reads out a
+    /// value the pick may have changed.
+    theme_picked_at: Option<usize>,
     /// The window last reported to pt35d as under the switcher's cursor.
     hover_sent: Option<i64>,
     /// Whether pt35d was last told the launcher is in front.
@@ -322,10 +325,12 @@ fn read_preview(id: i64) -> Option<Preview> {
 }
 
 /// The two movements the menu has: the selection gliding to its new row, and
-/// a new screen settling in from a few pixels down. Both are over in about a
-/// tenth of a second, and nothing is drawn for them once they are.
+/// a new screen settling in from a few pixels down. At the default speed both
+/// are over in about a tenth of a second, and nothing is drawn for them once
+/// they are.
 struct Motion {
-    enabled: bool,
+    /// How long the glide and the settle take. `None` is no motion.
+    spans: Option<(Duration, Duration)>,
     screen: (usize, String),
     entered: std::time::Instant,
     from: Option<i32>,
@@ -333,8 +338,6 @@ struct Motion {
     moved: std::time::Instant,
 }
 
-const GLIDE: Duration = Duration::from_millis(90);
-const ENTER: Duration = Duration::from_millis(120);
 /// How far a new screen rises as it settles.
 const ENTER_RISE: f32 = 12.0;
 
@@ -345,10 +348,10 @@ fn ease(elapsed: Duration, span: Duration) -> f32 {
 }
 
 impl Motion {
-    fn new(enabled: bool) -> Self {
+    fn new(speed: u8) -> Self {
         let long_ago = std::time::Instant::now() - Duration::from_secs(1);
         Self {
-            enabled,
+            spans: pt35_common::theme::animation_spans(speed),
             screen: (0, String::new()),
             entered: long_ago,
             from: None,
@@ -368,17 +371,21 @@ impl Motion {
         }
     }
 
+    fn set_speed(&mut self, speed: u8) {
+        self.spans = pt35_common::theme::animation_spans(speed);
+    }
+
     /// Pixels to push the body down while the screen settles.
     fn rise(&self) -> i32 {
-        if !self.enabled {
+        let Some((_, settle)) = self.spans else {
             return 0;
-        }
-        ((1.0 - ease(self.entered.elapsed(), ENTER)) * ENTER_RISE) as i32
+        };
+        ((1.0 - ease(self.entered.elapsed(), settle)) * ENTER_RISE) as i32
     }
 
     /// Where to draw the selection on its way to `target`.
     fn glide(&mut self, target: i32) -> i32 {
-        if !self.enabled {
+        if self.spans.is_none() {
             return target;
         }
         if self.to != Some(target) {
@@ -391,12 +398,15 @@ impl Motion {
 
     fn current(&self) -> Option<i32> {
         let (from, to) = (self.from?, self.to?);
-        let k = ease(self.moved.elapsed(), GLIDE);
+        let (glide, _) = self.spans?;
+        let k = ease(self.moved.elapsed(), glide);
         Some(from + ((to - from) as f32 * k) as i32)
     }
 
     fn busy(&self) -> bool {
-        self.enabled && (self.moved.elapsed() < GLIDE || self.entered.elapsed() < ENTER)
+        self.spans.is_some_and(|(glide, settle)| {
+            self.moved.elapsed() < glide || self.entered.elapsed() < settle
+        })
     }
 }
 
@@ -449,6 +459,7 @@ impl Menu {
             since_poll: 0,
             apps: pt35_common::load_config("pt35/apps.toml"),
             motion: Motion::new(theme_animations),
+            theme_picked_at: None,
             hover_sent: None,
             launcher_sent: None,
             readings: crate::widgets::Readings::default(),
@@ -767,9 +778,9 @@ impl Menu {
         let key = match button {
             // In Mouse mode B is the right button, and its pill says Options.
             "B" if self.mouse_mode() => return self.options_here(),
-            "<>" => Key::new(pt35_ui::keys::sym::RIGHT),
+            "←→" => Key::new(pt35_ui::keys::sym::RIGHT),
             "Bksp" => Key::new(pt35_ui::keys::sym::BACKSPACE),
-            "^v" => Key::new(pt35_ui::keys::sym::DOWN),
+            "↑↓" => Key::new(pt35_ui::keys::sym::DOWN),
             // The button's own keysym, not its letter: with the pt35
             // firmware a letter is only a letter.
             "A" | "A B" => Key::new(pt35_ui::keys::sym::BUTTON_A),
@@ -849,6 +860,30 @@ impl Menu {
     }
 
     fn apply(&mut self, step: Step) -> bool {
+        let keep = self.apply_step(step);
+        self.reread_after_pick();
+        keep
+    }
+
+    /// Back from Palette, Appearance has to read out the palette you picked.
+    /// Only a settings screen is read again: the launcher's rows walk every
+    /// .desktop folder.
+    fn reread_after_pick(&mut self) {
+        let depth = self.model.depth();
+        if self.theme_picked_at.is_none_or(|picked| depth >= picked) {
+            return;
+        }
+        self.theme_picked_at = Some(depth);
+        if let Some(builtin) = self
+            .model
+            .dynamic_builtin()
+            .filter(|builtin| providers::screen(*builtin).theme)
+        {
+            self.model.replace_dynamic(providers::items(builtin));
+        }
+    }
+
+    fn apply_step(&mut self, step: Step) -> bool {
         self.error = None;
         match step {
             Step::Close(payload) => {
@@ -958,7 +993,10 @@ impl Menu {
                     self.scan_until = Some(std::time::Instant::now() + Duration::from_secs(13));
                 }
                 if matches!(command, crate::model::Command::Theme(_)) {
+                    self.theme_picked_at = Some(self.model.depth());
                     self.theme = pt35_common::load_theme();
+                    // So a new speed takes effect on this menu too.
+                    self.motion.set_speed(self.theme.menu.animations);
                 }
                 // A shell payload is a detached script, so its effect lands after
                 // it has been spawned. Everything else went through the daemon,
@@ -1430,6 +1468,23 @@ impl Menu {
                     self.font.draw(canvas, text, tx, baseline, size_right, dim);
                 }
                 right_width = width + 10;
+            }
+            // A row that opens a setting's own screen reads out the value in
+            // use, left of its chevron.
+            if row.submenu && row.adjust.is_none() && row.state.is_none() && !row.note.is_empty() {
+                let size_note = theme.font.size_hint;
+                let width = self.mono.measure(&row.note, size_note) as i32;
+                let colour = if selected { fg } else { theme.color.accent };
+                right_width += width;
+                self.mono.draw(
+                    canvas,
+                    &row.note,
+                    canvas.width as i32 - pad - right_width,
+                    baseline,
+                    size_note,
+                    colour,
+                );
+                right_width += 10;
             }
             // A tick for the one row that is current, left of its readout.
             let current_cpu = self
@@ -4034,41 +4089,31 @@ impl App for Menu {
 pub fn run(page: Option<String>) -> Result<()> {
     let (theme, theme_problems) = pt35_common::load_theme_report();
     let tree = pt35_common::load_config("pt35/menu.toml");
-    // Each face takes ~50ms to parse on a Pi, and the menu is started on every
-    // open. In parallel, the four cost one.
-    let load = |faces: Vec<String>| {
-        std::thread::spawn(move || {
-            let mut last = Err(anyhow::anyhow!("no font"));
-            for face in faces {
-                last = Font::load(&face);
-                if last.is_ok() {
-                    break;
-                }
+    // The first face that loads. A missing bold or mono face is not worth
+    // failing over: the regular one reads.
+    let load = |faces: &[&String]| {
+        let mut last = Err(anyhow::anyhow!("no font"));
+        for face in faces {
+            last = Font::load(face);
+            if last.is_ok() {
+                break;
             }
-            last
-        })
+        }
+        last
     };
     // Parsed and drawn beside the fonts, so the first frame does not wait on it.
     let wallpaper = std::thread::spawn(|| {
         pt35_ui::wallpaper::Wallpaper::load(&pt35_common::paths::config_dir().join("wallpaper.svg"))
     });
     let f = &theme.font;
-    let font = load(vec![f.family.clone()]);
-    let mono = load(vec![f.family_mono.clone(), f.family.clone()]);
-    // A missing bold face is not worth failing over: the regular one reads.
-    let bold = load(vec![f.family_bold.clone(), f.family.clone()]);
-    let mono_bold = load(vec![
-        f.family_mono_bold.clone(),
-        f.family_mono.clone(),
-        f.family.clone(),
-    ]);
-    let join = |handle: std::thread::JoinHandle<Result<Font>>| {
-        handle
-            .join()
-            .map_err(|_| anyhow::anyhow!("font loader panicked"))?
-    };
-    let display = (!f.family_display.is_empty()).then(|| load(vec![f.family_display.clone()]));
-    let (font, mono, bold, mono_bold) = (join(font)?, join(mono)?, join(bold)?, join(mono_bold)?);
+    let font = load(&[&f.family])?;
+    let mono = load(&[&f.family_mono, &f.family])?;
+    let bold = load(&[&f.family_bold, &f.family])?;
+    let mono_bold = load(&[&f.family_mono_bold, &f.family_mono, &f.family])?;
+    // A display face that will not load is the mono one, not a dead menu.
+    let display = (!f.family_display.is_empty())
+        .then(|| load(&[&f.family_display]).ok())
+        .flatten();
     let body = 480u32
         .saturating_sub(theme.bar.height)
         .saturating_sub(theme.menu.header_height)
@@ -4112,8 +4157,7 @@ pub fn run(page: Option<String>) -> Result<()> {
     }
     let mut menu = Menu::new(theme, font, mono, bold, mono_bold, model);
     menu.wallpaper = wallpaper.join().ok().flatten();
-    // A display face that will not load is the mono one, not a dead menu.
-    menu.display = display.and_then(|handle| join(handle).ok());
+    menu.display = display;
     // The banner is the only place a broken theme file can say so.
     if let Some(problem) = theme_problems.first() {
         menu.error = Some(format!("Left out {problem}"));
