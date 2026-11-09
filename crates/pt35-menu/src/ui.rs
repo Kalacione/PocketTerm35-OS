@@ -16,6 +16,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use crate::model::{Model, Step};
+use crate::widgets::Tone;
 use crate::widgets::Widget;
 use crate::{exec, providers};
 
@@ -548,6 +549,43 @@ impl Menu {
             .map(str::to_string)
     }
 
+    /// The host behind an SSH command, when it reads DOWN and `[hosts] wake`
+    /// is set: then A or a tap wakes it, on the widget and on the SSH screen.
+    fn host_to_wake(&self, command: &crate::model::Command) -> Option<String> {
+        let crate::model::Command::Dynamic {
+            builtin: pt35_common::menu::Builtin::Ssh,
+            payload,
+        } = command
+        else {
+            return None;
+        };
+        let name = payload.strip_prefix("host:")?;
+        let can_wake = !self.theme.hosts.wake.trim().is_empty();
+        if !can_wake {
+            return None;
+        }
+        crate::widgets::hosts()?
+            .iter()
+            .find(|h| h.name == name)
+            .filter(|h| crate::widgets::wakes_on_tap(h, can_wake))
+            .map(|h| h.name.clone())
+    }
+
+    /// pt35d runs the wake: it outlives this menu. The row shows how it goes.
+    fn wake(&mut self, host: &str) {
+        let wake = crate::model::Command::Action(format!("wake {host}"));
+        if let Err(message) = exec::perform(&wake) {
+            self.error = Some(message);
+        }
+        if let Some(hosts) = crate::widgets::hosts() {
+            self.readings.hosts = hosts;
+        }
+        if self.model.dynamic_builtin() == Some(pt35_common::menu::Builtin::Ssh) {
+            self.model
+                .replace_dynamic(providers::items(pt35_common::menu::Builtin::Ssh));
+        }
+    }
+
     /// What a right click on the selected row offers, as a label and the
     /// button that does it. Empty when a plain click is all the row has.
     fn row_options(&self) -> Vec<(&'static str, &'static str)> {
@@ -1027,6 +1065,10 @@ impl Menu {
                 false
             }
             Step::Run(command) => {
+                if let Some(host) = self.host_to_wake(&command) {
+                    self.wake(&host);
+                    return true;
+                }
                 // A launch that fails must not close the menu: the screen would
                 // go back to an empty workspace with no word of what happened.
                 if let Err(message) = exec::perform(&command) {
@@ -2075,7 +2117,8 @@ impl Menu {
     }
 
     /// The pinned hosts of `~/.ssh/config`, as pt35d last found them. UP,
-    /// SLOW past 150 ms, DOWN on a filled tag. A tap on a row connects.
+    /// SLOW past 150 ms, DOWN on a filled tag. A tap on a row connects, or
+    /// wakes a DOWN host when `[hosts] wake` is set.
     fn draw_hosts(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
         let theme = self.theme.clone();
         let small = theme.font.size_hint * 0.8;
@@ -2093,20 +2136,16 @@ impl Menu {
             let y = top + 26 + i as i32 * row_h;
             let (rx, rw, rh) = (x + 8, w - 16, row_h - 4);
             canvas.frame(rx, y, rw as u32, rh as u32, theme.color.border);
-            let (word, colour, filled) = match (host.up, host.latency_ms) {
-                (None, _) => ("CHECK", theme.color.muted, false),
-                (Some(false), _) => ("DOWN", theme.color.critical, true),
-                (Some(true), Some(ms)) if ms > 150 => ("SLOW", theme.color.warning, false),
-                (Some(true), _) => ("UP", theme.color.ok, false),
+            let (word, tone, filled, detail) =
+                crate::widgets::host_row(host, !theme.hosts.wake.trim().is_empty());
+            let colour = match tone {
+                Tone::Muted => theme.color.muted,
+                Tone::Ok => theme.color.ok,
+                Tone::Warning => theme.color.warning,
+                Tone::Critical => theme.color.critical,
             };
             let tx = rx + 6;
             self.draw_status_row(canvas, (rx, y, rw), word, colour, filled, &host.name);
-            let detail = match (host.up, host.latency_ms) {
-                (Some(true), Some(0)) => "<1 ms".into(),
-                (Some(true), Some(ms)) => format!("{ms} ms"),
-                (Some(false), _) => "no answer".into(),
-                _ => String::new(),
-            };
             let dw = self.mono.measure(&detail, small) as i32;
             self.mono.draw(
                 canvas,
@@ -2114,7 +2153,7 @@ impl Menu {
                 rx + rw - 6 - dw,
                 y + rh - 7,
                 small,
-                if host.up == Some(false) {
+                if filled {
                     theme.color.foreground
                 } else {
                     theme.color.muted

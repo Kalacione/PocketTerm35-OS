@@ -15,6 +15,16 @@ pub struct Theme {
     pub icons: IconTheme,
     pub apps: Apps,
     pub effects: Effects,
+    pub hosts: Hosts,
+}
+
+/// The HOSTS widget.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Hosts {
+    /// Run as `<wake> <host>` when a DOWN host is tapped. Empty: a tap
+    /// connects, as on any other host.
+    pub wake: String,
 }
 
 /// Looks that cost a little on every frame. All off by default.

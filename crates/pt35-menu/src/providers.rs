@@ -213,11 +213,24 @@ fn ssh_hosts() -> Items {
     if hosts.is_empty() {
         return placeholder("No Host in ~/.ssh/config");
     }
+    // Only the pinned ones are checked. A DOWN one says what A does to it.
+    let checked = crate::widgets::hosts().unwrap_or_default();
+    let can_wake = !pt35_common::load_theme().hosts.wake.trim().is_empty();
     hosts
         .into_iter()
         .map(|name| Item {
             active: pinned.contains(&name),
             payload: format!("host:{name}"),
+            note: checked
+                .iter()
+                .find(|h| h.name == name)
+                .map(|h| match crate::widgets::host_row(h, can_wake) {
+                    (word, ..) if crate::widgets::wakes_on_tap(h, can_wake) => {
+                        format!("{word}, A wakes")
+                    }
+                    (word, _, _, detail) => format!("{word} {detail}").trim().to_string(),
+                })
+                .unwrap_or_default(),
             label: name,
             icon: "network-server".into(),
             ..Item::default()
