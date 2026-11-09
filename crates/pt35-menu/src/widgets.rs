@@ -155,7 +155,7 @@ pub enum Tone {
 }
 
 /// The tag's word, its tone, whether it is filled, and the detail on the
-/// right. `can_wake` is whether `[hosts] wake` is set.
+/// right. `can_wake` is whether `hook_wake` exists.
 pub fn host_row(host: &HostStatus, can_wake: bool) -> (&'static str, Tone, bool, String) {
     match (host.wake, host.up, host.latency_ms) {
         (Some(Wake::Waking(secs)), _, _) => (

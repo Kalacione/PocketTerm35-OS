@@ -736,7 +736,7 @@ impl Session {
             Request::Hosts => Ok(Response::Hosts {
                 hosts: crate::hosts::snapshot(),
             }),
-            Request::Wake { host } => match crate::hosts::wake(&host, &self.theme.hosts.wake) {
+            Request::Wake { host } => match crate::hosts::wake(&host) {
                 Ok(()) => Ok(Response::Ok),
                 Err(message) => Ok(Response::Error { message }),
             },

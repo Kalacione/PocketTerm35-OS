@@ -88,7 +88,7 @@ pub enum Request {
     /// Whether each pinned host answers on its SSH port. Checked by the
     /// daemon every couple of minutes, not on each open.
     Hosts,
-    /// Run the `[hosts] wake` command for this host, in the background.
+    /// Run `hooks/hook_wake` for this host, in the background.
     Wake {
         host: String,
     },
@@ -369,14 +369,14 @@ pub struct HostStatus {
     pub wake: Option<Wake>,
 }
 
-/// Where a wake stands. The command's exit says what happened: 0 the host
+/// Where a wake stands. The hook's exit says what happened: 0 the host
 /// is up, 1 no answer, 2 it cannot wake that host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Wake {
     /// Running, for this many seconds.
     Waking(u32),
-    /// Up by the command's word, but no answer from here: another network.
+    /// Up by the hook's word, but no answer from here: another network.
     Away,
     /// The exit code, or None when it was cut off or never ran.
     Failed(Option<i32>),

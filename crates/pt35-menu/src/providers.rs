@@ -215,7 +215,7 @@ fn ssh_hosts() -> Items {
     }
     // Only the pinned ones are checked. A DOWN one says what A does to it.
     let checked = crate::widgets::hosts().unwrap_or_default();
-    let can_wake = !pt35_common::load_theme().hosts.wake.trim().is_empty();
+    let can_wake = pt35_common::hosts::wake_hook().is_some();
     hosts
         .into_iter()
         .map(|name| Item {

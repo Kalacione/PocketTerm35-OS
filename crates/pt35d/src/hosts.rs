@@ -5,6 +5,7 @@
 use pt35_common::ipc::{HostStatus, Wake};
 use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -18,7 +19,7 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 /// A host reads DOWN only when a second check, this much later, agrees. At
 /// boot the first check can beat the network or Tailscale.
 const CONFIRM: Duration = Duration::from_secs(30);
-/// A wake command that has not ended by then is cut off.
+/// A wake hook that has not ended by then is cut off.
 const WAKE_LIMIT: Duration = Duration::from_secs(300);
 /// How long a wake's outcome stays on its row, unless the host answers.
 const WAKE_SHOWN: Duration = Duration::from_secs(600);
@@ -77,16 +78,14 @@ fn shown(run: &WakeRun, up: Option<bool>) -> Option<Wake> {
     }
 }
 
-/// Run `command host` on the side. A host already waking is left to it.
-pub fn wake(name: &str, command: &str) -> Result<(), String> {
-    let mut argv = wake_argv(command, &std::env::var("HOME").unwrap_or_default());
-    if argv.is_empty() {
-        return Err("no wake command: set [hosts] wake in theme.toml".into());
-    }
+/// Run the wake hook for this host on the side. A host already waking is
+/// left to it.
+pub fn wake(name: &str) -> Result<(), String> {
+    let hook =
+        pt35_common::hosts::wake_hook().ok_or("no wake hook: ~/.config/pt35/hooks/hook_wake")?;
     if name.is_empty() || name.starts_with('-') {
         return Err(format!("not a host: {name}"));
     }
-    argv.push(name.to_string());
     let mut wakes = WAKES.lock().map_err(|_| "wakes lock")?;
     if wakes.iter().any(|w| w.name == name && w.ended.is_none()) {
         return Ok(());
@@ -102,7 +101,7 @@ pub fn wake(name: &str, command: &str) -> Result<(), String> {
     let spawned = std::thread::Builder::new()
         .name("wake".into())
         .spawn(move || {
-            let ended = run_wake(&argv);
+            let ended = run_wake(&hook, &host_name);
             // Read the host before the outcome lands, so a host that is up
             // goes straight to UP and never shows as away.
             let name = host_name;
@@ -127,23 +126,11 @@ pub fn wake(name: &str, command: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The command split on spaces, no shell. `~/` leads to the home: a
-/// session's PATH often lacks `~/.local/bin`.
-fn wake_argv(command: &str, home: &str) -> Vec<String> {
-    command
-        .split_whitespace()
-        .enumerate()
-        .map(|(i, word)| match word.strip_prefix("~/") {
-            Some(rest) if i == 0 && !home.is_empty() => format!("{home}/{rest}"),
-            _ => word.to_string(),
-        })
-        .collect()
-}
-
-/// The command's exit, with the last line it wrote to stderr in the log.
-fn run_wake(argv: &[String]) -> Ended {
-    let mut child = match Command::new(&argv[0])
-        .args(&argv[1..])
+/// The hook's exit, with the last line it wrote to stderr in the log.
+fn run_wake(hook: &Path, host: &str) -> Ended {
+    let mut child = match Command::new(hook)
+        .arg(host)
+        .env("PT35_HOST", host)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -151,7 +138,7 @@ fn run_wake(argv: &[String]) -> Ended {
     {
         Ok(child) => child,
         Err(e) => {
-            log::warn!("wake: {}: {e}", argv[0]);
+            log::warn!("wake: {}: {e}", hook.display());
             return Ended::Failed(None);
         }
     };
@@ -181,7 +168,7 @@ fn run_wake(argv: &[String]) -> Ended {
         .rev()
         .find(|l| !l.trim().is_empty())
         .unwrap_or("");
-    log::info!("wake {}: exit {code:?} {last}", argv.join(" "));
+    log::info!("wake {host}: exit {code:?} {last}");
     match code {
         Some(0) => Ended::Up,
         code => Ended::Failed(code),
@@ -347,27 +334,22 @@ mod tests {
     }
 
     #[test]
-    fn a_wake_command_finds_the_home() {
-        assert_eq!(
-            wake_argv("~/.local/bin/pt35-wake", "/home/dje"),
-            vec!["/home/dje/.local/bin/pt35-wake"]
-        );
-        assert_eq!(
-            wake_argv("ssh relay wake.sh", "/h"),
-            vec!["ssh", "relay", "wake.sh"]
-        );
-        assert!(wake_argv("  ", "/h").is_empty());
-    }
-
-    #[test]
     fn a_wake_reports_its_exit() {
-        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(run_wake(&argv(&["true"])), Ended::Up);
+        use std::os::unix::fs::PermissionsExt;
+        let sh = |script: &str| {
+            let path = std::env::temp_dir().join(format!("pt35-wake-{}", std::process::id()));
+            std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let ended = run_wake(&path, "nas");
+            std::fs::remove_file(&path).unwrap();
+            ended
+        };
+        assert_eq!(sh(r#"[ "$1" = nas ] && [ "$PT35_HOST" = nas ]"#), Ended::Up);
+        assert_eq!(sh("exit 2"), Ended::Failed(Some(2)));
         assert_eq!(
-            run_wake(&argv(&["sh", "-c", "exit 2"])),
-            Ended::Failed(Some(2))
+            run_wake(Path::new("/nonexistent/hook_wake"), "nas"),
+            Ended::Failed(None)
         );
-        assert_eq!(run_wake(&argv(&["/nonexistent/wake"])), Ended::Failed(None));
     }
 
     #[test]

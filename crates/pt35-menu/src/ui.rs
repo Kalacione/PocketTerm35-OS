@@ -549,8 +549,8 @@ impl Menu {
             .map(str::to_string)
     }
 
-    /// The host behind an SSH command, when it reads DOWN and `[hosts] wake`
-    /// is set: then A or a tap wakes it, on the widget and on the SSH screen.
+    /// The host behind an SSH command, when it reads DOWN and `hook_wake`
+    /// exists: then A or a tap wakes it, on the widget and on the SSH screen.
     fn host_to_wake(&self, command: &crate::model::Command) -> Option<String> {
         let crate::model::Command::Dynamic {
             builtin: pt35_common::menu::Builtin::Ssh,
@@ -560,7 +560,7 @@ impl Menu {
             return None;
         };
         let name = payload.strip_prefix("host:")?;
-        let can_wake = !self.theme.hosts.wake.trim().is_empty();
+        let can_wake = pt35_common::hosts::wake_hook().is_some();
         if !can_wake {
             return None;
         }
@@ -2118,7 +2118,7 @@ impl Menu {
 
     /// The pinned hosts of `~/.ssh/config`, as pt35d last found them. UP,
     /// SLOW past 150 ms, DOWN on a filled tag. A tap on a row connects, or
-    /// wakes a DOWN host when `[hosts] wake` is set.
+    /// wakes a DOWN host when `hook_wake` exists.
     fn draw_hosts(&mut self, canvas: &mut Canvas, x: i32, top: i32, w: i32, h: i32) {
         let theme = self.theme.clone();
         let small = theme.font.size_hint * 0.8;
@@ -2132,12 +2132,12 @@ impl Menu {
             return;
         }
         let row_h = ((h - 34) / 3).min(50);
+        let can_wake = pt35_common::hosts::wake_hook().is_some();
         for (i, host) in hosts.iter().take(3).enumerate() {
             let y = top + 26 + i as i32 * row_h;
             let (rx, rw, rh) = (x + 8, w - 16, row_h - 4);
             canvas.frame(rx, y, rw as u32, rh as u32, theme.color.border);
-            let (word, tone, filled, detail) =
-                crate::widgets::host_row(host, !theme.hosts.wake.trim().is_empty());
+            let (word, tone, filled, detail) = crate::widgets::host_row(host, can_wake);
             let colour = match tone {
                 Tone::Muted => theme.color.muted,
                 Tone::Ok => theme.color.ok,
