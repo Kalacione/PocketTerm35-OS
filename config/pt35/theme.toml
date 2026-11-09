@@ -100,7 +100,7 @@ gtk_dark      = "Adwaita-dark"
 gtk_light     = "Adwaita"
 
 # A tap on a DOWN host in the HOSTS widget runs `<wake> <host>`, no shell,
-# in the background. Exit 0: the host is up. 1: no answer. 2: this host
+# in the background. A leading `~/` is the home. Exit 0: the host is up. 1: no answer. 2: this host
 # cannot be woken. Empty: the tap connects, as on any other host.
 [hosts]
 wake          = ""

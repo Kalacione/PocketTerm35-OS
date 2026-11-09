@@ -22,7 +22,8 @@ pub struct Theme {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Hosts {
-    /// Run as `<wake> <host>` when a DOWN host is tapped. Empty: a tap
+    /// Run as `<wake> <host>` when a DOWN host is tapped, split on spaces,
+    /// a leading `~/` for the home. Empty: a tap
     /// connects, as on any other host.
     pub wake: String,
 }

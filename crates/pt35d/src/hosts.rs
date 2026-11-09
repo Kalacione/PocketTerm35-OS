@@ -79,7 +79,7 @@ fn shown(run: &WakeRun, up: Option<bool>) -> Option<Wake> {
 
 /// Run `command host` on the side. A host already waking is left to it.
 pub fn wake(name: &str, command: &str) -> Result<(), String> {
-    let mut argv: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+    let mut argv = wake_argv(command, &std::env::var("HOME").unwrap_or_default());
     if argv.is_empty() {
         return Err("no wake command: set [hosts] wake in theme.toml".into());
     }
@@ -125,6 +125,19 @@ pub fn wake(name: &str, command: &str) -> Result<(), String> {
         return Err(format!("wake: {e}"));
     }
     Ok(())
+}
+
+/// The command split on spaces, no shell. `~/` leads to the home: a
+/// session's PATH often lacks `~/.local/bin`.
+fn wake_argv(command: &str, home: &str) -> Vec<String> {
+    command
+        .split_whitespace()
+        .enumerate()
+        .map(|(i, word)| match word.strip_prefix("~/") {
+            Some(rest) if i == 0 && !home.is_empty() => format!("{home}/{rest}"),
+            _ => word.to_string(),
+        })
+        .collect()
 }
 
 /// The command's exit, with the last line it wrote to stderr in the log.
@@ -331,6 +344,19 @@ mod tests {
             shown(&run(Some((now, Ended::Failed(Some(1))))), Some(false)),
             Some(Wake::Failed(Some(1)))
         );
+    }
+
+    #[test]
+    fn a_wake_command_finds_the_home() {
+        assert_eq!(
+            wake_argv("~/.local/bin/pt35-wake", "/home/dje"),
+            vec!["/home/dje/.local/bin/pt35-wake"]
+        );
+        assert_eq!(
+            wake_argv("ssh relay wake.sh", "/h"),
+            vec!["ssh", "relay", "wake.sh"]
+        );
+        assert!(wake_argv("  ", "/h").is_empty());
     }
 
     #[test]

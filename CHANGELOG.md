@@ -8,7 +8,7 @@ PocketTerm 3.5 Unleashed build: 0.4.5+u1 with wake from the HOSTS widget.
 
 - A tap on a DOWN host in the HOSTS widget wakes it, when `[hosts] wake` is
   set in `theme.toml`. pt35d runs `<wake> <host>` in the background, no
-  shell, and cuts it off after 5 minutes. The row reads WAKE with a timer,
+  shell (a leading `~/` is the home), and cuts it off after 5 minutes. The row reads WAKE with a timer,
   then UP, FAIL with the reason (`no answer`, `can't wake`, `exit N`), or
   ON `out of reach` when the command says the host is up but it does not
   answer from here. `pt35ctl wake HOST` does the same from a shell.
