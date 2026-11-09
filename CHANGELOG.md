@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.5+u2 (2026-11-09)
+
+PocketTerm 3.5 Unleashed build: 0.4.5+u1 with wake from the HOSTS widget.
+
+### Added
+
+- A tap on a DOWN host in the HOSTS widget wakes it, when
+  `~/.config/pt35/hooks/hook_wake` exists. pt35d runs it in the background
+  with the host as `$1` and `PT35_HOST`, and cuts it off after 5 minutes.
+  Without the hook, the tap connects as before. The row reads WAKE with a timer,
+  then UP, FAIL with the reason (`no answer`, `can't wake`, `exit N`), or
+  ON `out of reach` when the hook says the host is up but it does not
+  answer from here. `pt35ctl wake HOST` does the same from a shell.
+- On the SSH screen, A on a pinned DOWN host wakes it too, for the D-pad.
+  Pinned hosts show their state there.
+
+### Fixed
+
+- A host no longer reads DOWN after a single silent check. A second check,
+  30 seconds later, has to agree. At boot the first check could beat the
+  network or Tailscale, and the host stayed DOWN for two minutes.
+
 ## 0.4.5+u1 (2026-11-06)
 
 PocketTerm 3.5 Unleashed build: upstream 0.4.5 with every Unleashed change up

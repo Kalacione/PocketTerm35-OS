@@ -2,6 +2,7 @@
 //! pile of pinned widgets, one at a time: the network and the media player.
 //! Read on the menu's poll, never before the first frame.
 
+use pt35_common::ipc::{HostStatus, Wake};
 use std::sync::mpsc::Receiver;
 
 #[derive(Default)]
@@ -21,7 +22,7 @@ pub struct Readings {
     /// The SD card and any USB drive, read once per open. `None` until read.
     pub volumes: Option<Vec<Volume>>,
     /// The pinned hosts as pt35d last found them.
-    pub hosts: Vec<pt35_common::ipc::HostStatus>,
+    pub hosts: Vec<HostStatus>,
     /// The services file, worst first.
     pub services: Vec<Service>,
     /// The player, over MPRIS. Some while one is playing or paused.
@@ -129,13 +130,69 @@ impl Readings {
             Ok(pt35_common::ipc::Response::Traffic(traffic)) => Some(traffic),
             _ => None,
         };
-        if let Ok(pt35_common::ipc::Response::Hosts { hosts }) =
-            crate::live::request(&pt35_common::ipc::Request::Hosts)
-        {
+        if let Some(hosts) = hosts() {
             self.hosts = hosts;
         }
         self.services = read_services();
     }
+}
+
+/// The pinned hosts, as pt35d last found them.
+pub fn hosts() -> Option<Vec<HostStatus>> {
+    match crate::live::request(&pt35_common::ipc::Request::Hosts) {
+        Ok(pt35_common::ipc::Response::Hosts { hosts }) => Some(hosts),
+        _ => None,
+    }
+}
+
+/// How a host row reads. Never the colour alone: each state has its word.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Tone {
+    Muted,
+    Ok,
+    Warning,
+    Critical,
+}
+
+/// The tag's word, its tone, whether it is filled, and the detail on the
+/// right. `can_wake` is whether `hook_wake` exists.
+pub fn host_row(host: &HostStatus, can_wake: bool) -> (&'static str, Tone, bool, String) {
+    match (host.wake, host.up, host.latency_ms) {
+        (Some(Wake::Waking(secs)), _, _) => (
+            "WAKE",
+            Tone::Warning,
+            true,
+            format!("{}:{:02}", secs / 60, secs % 60),
+        ),
+        (Some(Wake::Failed(code)), _, _) => (
+            "FAIL",
+            Tone::Critical,
+            true,
+            match code {
+                Some(1) => "no answer".into(),
+                Some(2) => "can't wake".into(),
+                Some(code) => format!("exit {code}"),
+                None => "did not run".into(),
+            },
+        ),
+        (Some(Wake::Away), _, _) => ("ON", Tone::Warning, false, "out of reach".into()),
+        (None, None, _) => ("CHECK", Tone::Muted, false, String::new()),
+        (None, Some(false), _) if can_wake => ("DOWN", Tone::Critical, true, "tap wakes".into()),
+        (None, Some(false), _) => ("DOWN", Tone::Critical, true, "no answer".into()),
+        (None, Some(true), Some(ms)) if ms > 150 => {
+            ("SLOW", Tone::Warning, false, format!("{ms} ms"))
+        }
+        (None, Some(true), Some(0)) => ("UP", Tone::Ok, false, "<1 ms".into()),
+        (None, Some(true), Some(ms)) => ("UP", Tone::Ok, false, format!("{ms} ms")),
+        (None, Some(true), None) => ("UP", Tone::Ok, false, String::new()),
+    }
+}
+
+/// A host that does not answer is woken rather than connected to. One that
+/// woke but stays out of reach from here is connected to: waking it again
+/// would change nothing.
+pub fn wakes_on_tap(host: &HostStatus, can_wake: bool) -> bool {
+    can_wake && host.up == Some(false) && host.wake != Some(Wake::Away)
 }
 
 fn read_services() -> Vec<Service> {
@@ -497,6 +554,48 @@ tmpfs 100 50 /run
         assert_eq!(bytes(v[0].free), "72 GB");
         assert_eq!(bytes(v[1].free), "1.0 GB");
         assert_eq!(bytes(640_000_000), "640 MB");
+    }
+
+    #[test]
+    fn a_host_row_says_its_state_in_words() {
+        let host = |up, wake| HostStatus {
+            name: "nas".into(),
+            up,
+            latency_ms: up.filter(|u| *u).map(|_| 12),
+            wake,
+            ..HostStatus::default()
+        };
+        let word = |h: &HostStatus, w| host_row(h, w).0;
+        assert_eq!(word(&host(None, None), true), "CHECK");
+        assert_eq!(host_row(&host(Some(false), None), true).3, "tap wakes");
+        assert_eq!(host_row(&host(Some(false), None), false).3, "no answer");
+        assert_eq!(word(&host(Some(true), None), true), "UP");
+        let waking = host(Some(false), Some(Wake::Waking(95)));
+        assert_eq!(
+            host_row(&waking, true),
+            ("WAKE", Tone::Warning, true, "1:35".into())
+        );
+        let failed = host(Some(false), Some(Wake::Failed(Some(255))));
+        assert_eq!(host_row(&failed, true).3, "exit 255");
+        assert_eq!(word(&host(Some(false), Some(Wake::Away)), true), "ON");
+    }
+
+    #[test]
+    fn only_a_silent_host_is_woken() {
+        let host = |up, wake| HostStatus {
+            up,
+            wake,
+            ..HostStatus::default()
+        };
+        assert!(wakes_on_tap(&host(Some(false), None), true));
+        assert!(wakes_on_tap(
+            &host(Some(false), Some(Wake::Failed(Some(1)))),
+            true
+        ));
+        assert!(!wakes_on_tap(&host(Some(false), None), false));
+        assert!(!wakes_on_tap(&host(Some(true), None), true));
+        assert!(!wakes_on_tap(&host(None, None), true));
+        assert!(!wakes_on_tap(&host(Some(false), Some(Wake::Away)), true));
     }
 
     #[test]

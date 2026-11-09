@@ -90,6 +90,25 @@ fn expand(ssh: &Path, pattern: &str) -> Vec<PathBuf> {
     files
 }
 
+/// `hooks/hook_wake`, run with the host as `$1` and `PT35_HOST` when a DOWN
+/// host is tapped. Not there: the tap connects, as on any other host. It
+/// lives on the device: it knows the network, and the shell does not.
+pub fn wake_hook() -> Option<PathBuf> {
+    let path = crate::paths::hooks_dir().join("hook_wake");
+    is_executable(&path).then_some(path)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
 /// The pinned hosts, in order. Never set is the first few of the config.
 pub fn pinned() -> Vec<String> {
     match std::fs::read_to_string(crate::paths::hosts_path()) {
