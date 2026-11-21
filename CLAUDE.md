@@ -139,8 +139,14 @@ Storage shows the system drive and USB drives from `df`: green, amber past
 of `~/.ssh/config`, pinned on the SSH screen (All apps), in
 `~/.local/state/pt35/hosts`. `pt35d` (`hosts.rs`, `pt35ctl hosts`) resolves
 each with `ssh -G` and times a TCP connection to its port every two minutes:
-UP, SLOW past 150 ms, DOWN on a filled tag. A tap opens `foot ssh`. Colour
-always comes with the word. The host list never leaves the device.
+UP, SLOW past 150 ms, DOWN on a filled tag. DOWN takes two silent checks
+30 s apart: at boot the first can beat the network. A tap opens `foot ssh`.
+With an executable `hooks/hook_wake`, a tap on DOWN (or A on the SSH screen)
+asks `pt35d` to run it with the host as `$1` instead: the menu is a new
+process per open, so the daemon owns the run. The row reads WAKE, then UP,
+FAIL or ON (up by the hook's word, out of reach from here). How to wake a
+host is the network's business, so it is a hook, never a setting. Colour
+always comes with the word. The host list and the hook never leave the device.
 
 The launcher cannot be closed from inside it. The picker's first tile is the
 Launcher: A opens it, Y and X leave it alone. At the launcher's top screen B does

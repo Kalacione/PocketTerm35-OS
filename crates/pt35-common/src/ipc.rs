@@ -88,6 +88,10 @@ pub enum Request {
     /// Whether each pinned host answers on its SSH port. Checked by the
     /// daemon every couple of minutes, not on each open.
     Hosts,
+    /// Run `hooks/hook_wake` for this host, in the background.
+    Wake {
+        host: String,
+    },
 }
 
 impl Request {
@@ -154,6 +158,9 @@ impl Request {
             },
             ["traffic"] => Request::Traffic,
             ["hosts"] => Request::Hosts,
+            ["wake", host] => Request::Wake {
+                host: host.to_string(),
+            },
             ["wheel", "up"] => Request::Wheel { down: false },
             ["wheel", "down"] => Request::Wheel { down: true },
             ["window", "closeall"] => Request::Window {
@@ -357,6 +364,22 @@ pub struct HostStatus {
     pub address: Option<String>,
     pub up: Option<bool>,
     pub latency_ms: Option<u32>,
+    /// The last wake asked for, while it runs and for a while after.
+    #[serde(default)]
+    pub wake: Option<Wake>,
+}
+
+/// Where a wake stands. The hook's exit says what happened: 0 the host
+/// is up, 1 no answer, 2 it cannot wake that host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Wake {
+    /// Running, for this many seconds.
+    Waking(u32),
+    /// Up by the hook's word, but no answer from here: another network.
+    Away,
+    /// The exit code, or None when it was cut off or never ran.
+    Failed(Option<i32>),
 }
 
 /// Samples `Traffic` keeps: three minutes at the daemon's 2 second poll.

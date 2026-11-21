@@ -33,6 +33,7 @@ usage:
   pt35ctl status [--json]
   pt35ctl traffic
   pt35ctl hosts
+  pt35ctl wake HOST
 ";
 
 fn main() {

@@ -133,7 +133,11 @@ fn handle_client(
         // next poll would show the new mode up to two seconds late.
         let changes = !matches!(
             request,
-            Request::Subscribe | Request::Status | Request::Traffic | Request::Hosts
+            Request::Subscribe
+                | Request::Status
+                | Request::Traffic
+                | Request::Hosts
+                | Request::Wake { .. }
         );
         // Everything goes out before the reply, and under the lock. The menu's
         // own "menu off" kills the menu that sent it, so that reply always lands

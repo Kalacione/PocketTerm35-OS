@@ -230,6 +230,7 @@ Defaults live in `/usr/share/pt35-desktop/pt35/`. Put your own copy in
 | `apps.toml` | each app: command, workspace, scale, environment |
 | `theme.toml` | colours, fonts, sizes, icons |
 | `hooks/hook_*` | scripts run at startup, app launch, shutdown |
+| `hooks/hook_wake` | wakes a DOWN host of the HOSTS widget: gets the host as `$1`, exits 0 up, 1 no answer, 2 unknown host |
 
 Settings > Appearance, Bar and Menu write `~/.config/pt35/appearance.toml`
 for you.
